@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata = {
   title: 'TexasGTM — CRM',
   description: 'Modern team CRM with lead management, tasks, and messaging',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({ children }) {

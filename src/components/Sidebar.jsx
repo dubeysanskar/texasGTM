@@ -27,7 +27,7 @@ export default function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-brand">
         <div className="sidebar-logo">
-          <span className="material-symbols-outlined" style={{ fontSize: 26 }}>hub</span>
+          <img src="/logo.png" alt="TexasGTM" style={{ width: 30, height: 30, borderRadius: 6, objectFit: 'cover' }} />
         </div>
         <span className="sidebar-title">TexasGTM</span>
       </div>
