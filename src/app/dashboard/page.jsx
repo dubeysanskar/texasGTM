@@ -1,0 +1,102 @@
+'use client';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import Link from 'next/link';
+
+const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size, verticalAlign: 'middle' }}>{name}</span>;
+
+export default function DashboardPage() {
+  const { user, isAdmin } = useAuth();
+  const [data, setData] = useState({ stats: {} });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { fetch('/api/dashboard').then(r => r.json()).then(setData).finally(() => setLoading(false)); }, []);
+
+  if (loading) return (
+    <div className="page-content">
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginTop: 60 }}>
+        {[1,2,3,4,5,6].map(i => <div key={i} className="card"><div className="skeleton" style={{ height: 60, borderRadius: 8 }} /></div>)}
+      </div>
+    </div>
+  );
+
+  const { stats } = data;
+  const rate = stats.completion_rate || 0;
+  const circumference = 2 * Math.PI * 54;
+  const offset = circumference - (rate / 100) * circumference;
+
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <h1><MI name="dashboard" size={26} /> Dashboard</h1>
+          <p>Welcome back, <strong>{user?.name}</strong></p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Link href="/tasks" className="btn btn-sm btn-ghost"><MI name="task_alt" size={16} /> Tasks</Link>
+          <Link href="/messages" className="btn btn-sm btn-info"><MI name="chat" size={16} /> Messages {stats.unread_messages > 0 && <span style={{ background: '#ef4444', color: '#fff', borderRadius: '50%', width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700 }}>{stats.unread_messages}</span>}</Link>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 }}>
+        {[
+          { label: 'Total Tasks', value: stats.total_tasks || 0, icon: 'task_alt', color: '#6366f1' },
+          { label: 'Completed', value: stats.completed_tasks || 0, icon: 'check_circle', color: '#10b981' },
+          { label: 'Pending', value: stats.pending_tasks || 0, icon: 'schedule', color: '#f59e0b' },
+          { label: 'Total Leads', value: stats.total_leads || 0, icon: 'leaderboard', color: '#3b82f6' },
+          { label: 'HOT Leads', value: stats.hot_leads || 0, icon: 'local_fire_department', color: '#ef4444' },
+          ...(isAdmin ? [{ label: 'Team Members', value: stats.total_users || 0, icon: 'group', color: '#8b5cf6' }] : []),
+        ].map(m => (
+          <div key={m.label} className="stat-card" style={{ borderTopColor: m.color, cursor: 'pointer' }}>
+            <div className="stat-icon"><MI name={m.icon} size={18} /></div>
+            <div className="stat-value" style={{ color: m.color }}>{m.value}</div>
+            <div className="stat-label">{m.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 16, marginBottom: 24 }}>
+        {/* Completion Ring */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>Task Completion</div>
+          <div style={{ position: 'relative', width: 120, height: 120 }}>
+            <svg width="120" height="120" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="54" fill="none" stroke="var(--border)" strokeWidth="8" />
+              <circle cx="60" cy="60" r="54" fill="none" stroke={rate >= 75 ? '#10b981' : rate >= 50 ? '#f59e0b' : '#ef4444'} strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" transform="rotate(-90 60 60)" style={{ transition: 'stroke-dashoffset 1s ease' }} />
+            </svg>
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800 }}>{rate}%</div>
+              <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>{stats.completed_tasks}/{stats.total_tasks}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Tasks */}
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+            <span style={{ fontWeight: 700, fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: 8 }}><MI name="task_alt" size={18} /> Recent Tasks</span>
+            <Link href="/tasks" style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 600, textDecoration: 'none' }}>View All →</Link>
+          </div>
+          <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+            {(!stats.recentTasks || stats.recentTasks.length === 0) ? (
+              <p className="no-data" style={{ padding: 30 }}>No tasks yet. Create one from the Tasks page.</p>
+            ) : stats.recentTasks.map(task => (
+              <div key={task.id} style={{ display: 'flex', gap: 10, padding: '10px 18px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                <div style={{ width: 24, height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', background: task.status === 'complete' ? '#10b981' : 'var(--bg)', color: task.status === 'complete' ? '#fff' : 'var(--text-muted)', flexShrink: 0 }}>
+                  <MI name={task.status === 'complete' ? 'check' : 'radio_button_unchecked'} size={14} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, textDecoration: task.status === 'complete' ? 'line-through' : 'none', color: task.status === 'complete' ? 'var(--text-muted)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Assigned to: {task.assigned_to_name}</div>
+                </div>
+                <span className={`badge badge-${task.status}`}>{task.status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

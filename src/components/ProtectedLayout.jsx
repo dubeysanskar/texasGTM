@@ -1,0 +1,13 @@
+'use client';
+import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+import Sidebar from '@/components/Sidebar';
+
+export default function ProtectedLayout({ children }) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  useEffect(() => { if (!loading && !user) router.push('/'); }, [user, loading, router]);
+  if (loading || !user) return <div className="page-loading">Loading...</div>;
+  return (<div className="app-layout"><Sidebar /><main className="main-content">{children}</main></div>);
+}

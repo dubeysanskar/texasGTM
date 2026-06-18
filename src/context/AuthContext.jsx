@@ -1,0 +1,81 @@
+'use client';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+
+const AuthContext = createContext(null);
+
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('gtm-user');
+    if (stored) { try { setUser(JSON.parse(stored)); } catch { localStorage.removeItem('gtm-user'); } }
+
+    fetch('/api/auth/me')
+      .then(res => { if (!res.ok) { localStorage.removeItem('gtm-user'); setUser(null); return null; } return res.json(); })
+      .then(data => { if (data?.user) { setUser(data.user); localStorage.setItem('gtm-user', JSON.stringify(data.user)); } })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const login = useCallback(async (email, password) => {
+    const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    setUser(data.user); localStorage.setItem('gtm-user', JSON.stringify(data.user));
+    return data.user;
+  }, []);
+
+  const logout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setUser(null); localStorage.removeItem('gtm-user');
+  }, []);
+
+  const isAdmin = user?.role === 'super_admin';
+  const isManager = user && ['super_admin', 'manager'].includes(user.role);
+  const isStaff = user && ['super_admin', 'manager', 'staff', 'marketing'].includes(user.role);
+  const isMarketing = user?.role === 'marketing';
+
+  const [roleLabels, setRoleLabels] = useState({
+    super_admin: 'Super Admin', manager: 'Manager', staff: 'Staff',
+    marketing: 'Marketing', viewer: 'Viewer',
+  });
+
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then(data => {
+      if (data.settings) {
+        const s = data.settings;
+        setRoleLabels({
+          super_admin: s.role_label_super_admin || 'Super Admin',
+          manager: s.role_label_manager || 'Manager',
+          staff: s.role_label_staff || 'Staff',
+          marketing: s.role_label_marketing || 'Marketing',
+          viewer: s.role_label_viewer || 'Viewer',
+        });
+      }
+    }).catch(() => {});
+  }, []);
+
+  const roleColors = {
+    super_admin: '#dc2626', manager: '#8A0029', staff: '#2563eb',
+    marketing: '#7c3aed', viewer: '#6b7280',
+  };
+  const roleLabel = user ? roleLabels[user.role] : '';
+  const roleColor = user ? roleColors[user.role] : '';
+
+  return (
+    <AuthContext.Provider value={{
+      user, loading, login, logout,
+      isAdmin, isManager, isStaff, isMarketing,
+      roleLabel, roleColor, roleLabels, roleColors,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be inside AuthProvider');
+  return ctx;
+}
