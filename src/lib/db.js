@@ -221,6 +221,22 @@ async function initSchema() {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS gtm_templates (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      platform TEXT NOT NULL DEFAULT 'email',
+      status TEXT DEFAULT 'active',
+      subject TEXT DEFAULT '',
+      body TEXT NOT NULL DEFAULT '',
+      language TEXT DEFAULT 'en',
+      translations JSONB DEFAULT '{}',
+      created_by INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gtm_templates_platform ON gtm_templates(platform);
+
     CREATE INDEX IF NOT EXISTS idx_gtm_msgs_sender ON gtm_messages(sender_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_msgs_receiver ON gtm_messages(receiver_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_task_comments ON gtm_task_comments(task_id);

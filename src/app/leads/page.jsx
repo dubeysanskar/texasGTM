@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 
 const STATUS_CONFIG = {
   not_contacted:   { label: 'Not Contacted',   bg: '#F1EFE8', text: '#5F5E5A', dot: '#888780', row: '#ffffff' },
+  touch_1:         { label: 'Touch 1',          bg: '#DBEAFE', text: '#1e40af', dot: '#3b82f6', row: '#eff6ff' },
+  touch_2:         { label: 'Touch 2',          bg: '#FEF3C7', text: '#92400e', dot: '#f59e0b', row: '#fffbeb' },
+  touch_3:         { label: 'Touch 3',          bg: '#D1FAE5', text: '#065f46', dot: '#10b981', row: '#ecfdf5' },
   email_sent:      { label: 'Email Sent',       bg: '#DBEAFE', text: '#185FA5', dot: '#378ADD', row: '#eff6ff' },
   call_made:       { label: 'Call Made',         bg: '#EEEDFE', text: '#3C3489', dot: '#7F77DD', row: '#f5f3ff' },
   replied:         { label: 'Replied',           bg: '#E1F5EE', text: '#0F6E56', dot: '#1D9E75', row: '#f0fdf4' },
