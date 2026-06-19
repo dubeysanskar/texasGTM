@@ -46,6 +46,8 @@ export default function LeadsPage() {
   const [bulkLookupText, setBulkLookupText] = useState('');
   const [perPage, setPerPage] = useState(50);
   const [sortOrder, setSortOrder] = useState('desc');
+  const [templates, setTemplates] = useState([]);
+  const [tplSearch, setTplSearch] = useState({});
 
   useEffect(() => { if (!authLoading && !user) router.push('/'); }, [user, authLoading, router]);
 
@@ -68,9 +70,17 @@ export default function LeadsPage() {
   const fetchStats = useCallback(async () => {
     try { const r = await fetch('/api/leads/stats'); setStats(await r.json()); } catch {}
   }, []);
+  const fetchTemplates = useCallback(async () => {
+    try { const r = await fetch('/api/templates'); setTemplates(await r.json()); } catch {}
+  }, []);
 
-  useEffect(() => { if (user) { fetchLeads(); fetchStats(); } }, [user, fetchLeads, fetchStats]);
+  useEffect(() => { if (user) { fetchLeads(); fetchStats(); fetchTemplates(); } }, [user, fetchLeads, fetchStats, fetchTemplates]);
   useEffect(() => { setPage(1); }, [filters, perPage]);
+
+  async function handleTemplateChange(leadId, tplId) {
+    await fetch(`/api/leads/${leadId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ last_template_id: tplId || null }) });
+    fetchLeads();
+  }
 
   async function handleStatusChange(id, s) {
     await fetch(`/api/leads/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }) });
@@ -100,6 +110,11 @@ export default function LeadsPage() {
   }
   function toggleSelect(id) { setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
   function toggleSelectAll() { if (selected.size === leads.length) setSelected(new Set()); else setSelected(new Set(leads.map(l => l.id))); }
+
+  // Excel-like cell styles
+  const TH = { padding:'8px 10px', textAlign:'left', fontSize:'0.7rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.3px', borderRight:'1px solid #e5e7eb', borderBottom:'2px solid #d1d5db', whiteSpace:'nowrap', userSelect:'none' };
+  const TD = { padding:'6px 10px', borderRight:'1px solid #f1f5f9', borderBottom:'1px solid #e5e7eb', fontSize:'0.74rem', color:'#374151', userSelect:'text', cursor:'text', verticalAlign:'top' };
+  const PB = { padding:'5px 10px', border:'1px solid var(--border)', borderRadius:6, background:'#fff', cursor:'pointer', fontSize:'0.72rem', color:'#374151' };
 
   if (authLoading || !user) return <div className="page-loading">Loading...</div>;
 
@@ -219,6 +234,7 @@ export default function LeadsPage() {
                 <th style={{...TH, minWidth:100}}>Priority</th>
                 <th style={{...TH, minWidth:140}}>Status</th>
                 <th style={{...TH, minWidth:140}}>Notes</th>
+                <th style={{...TH, minWidth:180}}>Template Used</th>
                 <th style={{width:40}}></th>
               </tr>
             </thead>
@@ -256,6 +272,9 @@ export default function LeadsPage() {
                       </select>
                     </td>
                     <td style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.notes||'—'}</td>
+                    <td style={{...TD, minWidth:180, position:'relative'}}>
+                      <TemplateSelector leadId={l.id} currentId={l.last_template_id} templates={templates} onChange={handleTemplateChange} tplSearch={tplSearch} setTplSearch={setTplSearch} />
+                    </td>
                     <td style={{padding:'8px 4px', textAlign:'center'}}>
                       <button onClick={() => handleDelete(l.id)} title="Delete" style={{ background:'none', border:'none', cursor:'pointer', color:'#dc2626' }}><MI name="delete" size={15}/></button>
                     </td>
@@ -331,6 +350,51 @@ function AddModal({ onClose, onDone }) {
             <button type="submit" disabled={saving} className="btn btn-primary">{saving ? 'Saving…' : 'Add Lead'}</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function TemplateSelector({ leadId, currentId, templates, onChange, tplSearch, setTplSearch }) {
+  const [open, setOpen] = useState(false);
+  const search = (tplSearch[leadId] || '').toLowerCase();
+  const current = templates.find(t => t.id === currentId);
+  const filtered = templates.filter(t => {
+    if (!search) return true;
+    const tr = typeof t.translations === 'string' ? JSON.parse(t.translations || '{}') : (t.translations || {});
+    const allText = [t.name, t.subject, t.body, ...Object.values(tr).map(v => `${v.subject||''} ${v.body||''}`)].join(' ').toLowerCase();
+    return allText.includes(search);
+  });
+
+  if (!open) {
+    return (
+      <div onClick={() => setOpen(true)} style={{ cursor:'pointer', fontSize:'0.7rem', padding:'4px 8px', borderRadius:6, border:'1px solid #e5e7eb', background: current ? '#eff6ff' : '#fff', color: current ? '#1e40af' : '#9ca3af', minHeight:28, display:'flex', alignItems:'center', gap:4 }}>
+        {current ? <><MI name="description" size={12}/> {current.name}</> : <><MI name="add" size={12}/> Set template</>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position:'relative', zIndex:50 }}>
+      <input autoFocus type="text" placeholder="Search template, subject, message…" value={tplSearch[leadId] || ''}
+        onChange={e => setTplSearch(s => ({...s, [leadId]: e.target.value}))}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        style={{ width:'100%', padding:'5px 8px', borderRadius:6, border:'1px solid #93c5fd', fontSize:'0.72rem', background:'#eff6ff' }} />
+      <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, maxHeight:200, overflowY:'auto', boxShadow:'0 8px 24px rgba(0,0,0,.12)', marginTop:2, zIndex:99 }}>
+        <div onClick={() => { onChange(leadId, null); setOpen(false); setTplSearch(s => ({...s, [leadId]: ''})); }}
+          style={{ padding:'6px 10px', fontSize:'0.7rem', color:'#9ca3af', cursor:'pointer', borderBottom:'1px solid #f1f5f9' }}>
+          ✕ Clear template
+        </div>
+        {filtered.map(t => (
+          <div key={t.id} onClick={() => { onChange(leadId, t.id); setOpen(false); setTplSearch(s => ({...s, [leadId]: ''})); }}
+            style={{ padding:'6px 10px', cursor:'pointer', fontSize:'0.7rem', borderBottom:'1px solid #f8fafc', background: t.id === currentId ? '#eff6ff' : '#fff', transition:'background .1s' }}
+            onMouseOver={e => e.currentTarget.style.background='#f0f9ff'}
+            onMouseOut={e => e.currentTarget.style.background= t.id === currentId ? '#eff6ff' : '#fff'}>
+            <div style={{ fontWeight:600, color:'#1f2937' }}>{t.name}</div>
+            {t.subject && <div style={{ fontSize:'0.64rem', color:'#6b7280', marginTop:1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{t.subject}</div>}
+          </div>
+        ))}
+        {filtered.length === 0 && <div style={{ padding:'10px', textAlign:'center', fontSize:'0.7rem', color:'#9ca3af' }}>No templates found</div>}
       </div>
     </div>
   );

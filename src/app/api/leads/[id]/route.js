@@ -18,7 +18,7 @@ export async function PUT(request, { params }) {
       [user.id, user.name, user.role, `Changed "${lead.company_name}" status: ${lead.status} → ${b.status}`, 'lead', 'lead', id]);
   }
 
-  const fields = ['company_name','domain','sector','priority','status','city','region','country','company_size','pain_point','decision_maker_title','phone','email','contact_method','source_url','find_instructions','notes','last_contacted_at','next_followup_at','contacted_by'];
+  const fields = ['company_name','domain','sector','priority','status','city','region','country','company_size','pain_point','decision_maker_title','phone','email','contact_method','source_url','find_instructions','notes','last_contacted_at','next_followup_at','contacted_by','last_template_id'];
   const updates = []; const vals = [];
   fields.forEach(f => { if (b[f] !== undefined) { vals.push(b[f]); updates.push(`${f} = $${vals.length}`); } });
   vals.push(id);

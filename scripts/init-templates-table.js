@@ -30,6 +30,11 @@ async function run() {
     CREATE INDEX IF NOT EXISTS idx_gtm_templates_platform ON gtm_templates(platform);
   `);
   console.log('gtm_templates table created OK');
+
+  // Add last_template_id column to gtm_leads if not exists
+  await pool.query(`ALTER TABLE gtm_leads ADD COLUMN IF NOT EXISTS last_template_id INTEGER`);
+  console.log('last_template_id column ensured');
+
   await pool.end();
 }
 
