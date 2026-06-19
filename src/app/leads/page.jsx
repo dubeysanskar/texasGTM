@@ -45,6 +45,7 @@ export default function LeadsPage() {
   const [showBulkLookup, setShowBulkLookup] = useState(false);
   const [bulkLookupText, setBulkLookupText] = useState('');
   const [perPage, setPerPage] = useState(50);
+  const [sortOrder, setSortOrder] = useState('desc');
 
   useEffect(() => { if (!authLoading && !user) router.push('/'); }, [user, authLoading, router]);
 
@@ -55,14 +56,14 @@ export default function LeadsPage() {
     if (filters.priority) p.set('priority', filters.priority);
     if (filters.status) p.set('status', filters.status);
     if (filters.search) p.set('search', filters.search);
-    p.set('page', page); p.set('limit', perPage);
+    p.set('page', page); p.set('limit', perPage); p.set('order', sortOrder);
     try {
       const res = await fetch(`/api/leads?${p}`);
       const d = await res.json();
       setLeads(d.leads || []); setTotal(d.total || 0); setTotalPages(d.totalPages || 1);
     } catch { setLeads([]); }
     setLoading(false);
-  }, [filters, page, perPage]);
+  }, [filters, page, perPage, sortOrder]);
 
   const fetchStats = useCallback(async () => {
     try { const r = await fetch('/api/leads/stats'); setStats(await r.json()); } catch {}
@@ -164,6 +165,10 @@ export default function LeadsPage() {
         <select value={perPage} onChange={e => setPerPage(Number(e.target.value))} style={{ padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.75rem', width:80 }}>
           {[25,50,100,200].map(n => <option key={n} value={n}>{n}/pg</option>)}
         </select>
+        <button onClick={() => setSortOrder(o => o === 'desc' ? 'asc' : 'desc')} title={sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+          style={{ padding:'7px 12px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.72rem', cursor:'pointer', background: sortOrder === 'asc' ? '#eff6ff' : '#fff', color: sortOrder === 'asc' ? '#2563eb' : '#6b7280', fontWeight:600, display:'flex', alignItems:'center', gap:4, whiteSpace:'nowrap' }}>
+          <MI name={sortOrder === 'desc' ? 'arrow_downward' : 'arrow_upward'} size={14}/> {sortOrder === 'desc' ? 'Newest' : 'Oldest'}
+        </button>
         {(filters.search||filters.priority||filters.sector||filters.status) && (
           <button onClick={() => setFilters({sector:'',priority:'',status:'',search:''})} style={{ fontSize:'0.7rem', color:'#9ca3af', border:'1px solid var(--border)', borderRadius:8, padding:'7px 12px', cursor:'pointer', background:'#fff' }}>✕ Clear</button>
         )}
@@ -186,15 +191,27 @@ export default function LeadsPage() {
         <div style={{ textAlign:'center', padding:60, color:'var(--text-muted)' }}><MI name="groups" size={40}/><p style={{ marginTop:8 }}>No leads found</p></div>
       ) : (
         <div style={{ overflowX:'auto', borderRadius:10, border:'1px solid var(--border)' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.76rem' }}>
             <thead>
               <tr style={{ background:'#f8fafc', borderBottom:'2px solid var(--border)' }}>
                 <th style={{ padding:'10px 8px', width:36, textAlign:'center' }}>
                   <input type="checkbox" checked={selected.size === leads.length && leads.length > 0} onChange={toggleSelectAll} style={{ cursor:'pointer' }}/>
                 </th>
-                <th style={TH}>ID</th><th style={{...TH, minWidth:180}}>Company</th><th style={TH}>Sector</th>
-                <th style={TH}>City</th><th style={{...TH, minWidth:130}}>Priority</th><th style={{...TH, minWidth:160}}>Status</th>
-                <th style={TH}>Contact</th><th style={TH}>Phone</th><th style={{width:50}}></th>
+                <th style={TH}>#</th>
+                <th style={{...TH, minWidth:160}}>Company</th>
+                <th style={{...TH, minWidth:100}}>Industry</th>
+                <th style={{...TH, minWidth:100}}>City/Region</th>
+                <th style={TH}>Size</th>
+                <th style={{...TH, minWidth:140}}>Why They Need</th>
+                <th style={{...TH, minWidth:110}}>Decision Maker</th>
+                <th style={{...TH, minWidth:120}}>Where to Find</th>
+                <th style={TH}>Contact Method</th>
+                <th style={TH}>Phone</th>
+                <th style={{...TH, minWidth:120}}>Email</th>
+                <th style={{...TH, minWidth:100}}>Priority</th>
+                <th style={{...TH, minWidth:140}}>Status</th>
+                <th style={{...TH, minWidth:140}}>Notes</th>
+                <th style={{width:40}}></th>
               </tr>
             </thead>
             <tbody>
@@ -209,21 +226,18 @@ export default function LeadsPage() {
                     </td>
                     <td style={{ padding:'8px', fontFamily:'monospace', fontSize:'0.68rem', color:'#9ca3af' }}>{l.id}</td>
                     <td style={{ padding:'8px 10px' }}>
-                      <div style={{ fontWeight:600, fontSize:'0.8rem', cursor:'pointer', color:'var(--text)' }} onClick={() => setExpandedId(expandedId===l.id?null:l.id)}>{l.company_name}</div>
-                      {l.domain && <div style={{ fontSize:'0.65rem', color:'#9ca3af', marginTop:1 }}>{l.domain}</div>}
-                      {expandedId===l.id && (
-                        <div style={{ marginTop:8, padding:'8px 10px', background:'#f8fafc', borderRadius:8, fontSize:'0.72rem', lineHeight:1.6, color:'#4b5563', border:'1px solid #e5e7eb' }}>
-                          {l.pain_point && <div><strong>Why:</strong> {l.pain_point}</div>}
-                          {l.find_instructions && <div><strong>Find:</strong> {l.find_instructions}</div>}
-                          {l.notes && <div><strong>Notes:</strong> {l.notes}</div>}
-                          {l.email && <div><strong>Email:</strong> <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a></div>}
-                          {l.company_size && <div><strong>Size:</strong> {l.company_size}</div>}
-                          {l.decision_maker_title && <div><strong>Decision maker:</strong> {l.decision_maker_title}</div>}
-                        </div>
-                      )}
+                      <div style={{ fontWeight:600, fontSize:'0.78rem', color:'var(--text)' }}>{l.company_name}</div>
+                      {l.domain && <div style={{ fontSize:'0.64rem', color:'#9ca3af', marginTop:1 }}>{l.domain}</div>}
                     </td>
-                    <td style={TD}>{SL[l.sector]||l.sector}</td>
-                    <td style={TD}>{[l.city,l.region].filter(Boolean).join(', ')}</td>
+                    <td style={TD}>{SL[l.sector]||l.sector||'—'}</td>
+                    <td style={TD}>{[l.city,l.region].filter(Boolean).join(', ')||'—'}</td>
+                    <td style={TD}>{l.company_size||'—'}</td>
+                    <td style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.pain_point||'—'}</td>
+                    <td style={TD}>{l.decision_maker_title||'—'}</td>
+                    <td style={{...TD, fontSize:'0.7rem', maxWidth:160, whiteSpace:'normal', lineHeight:1.4}}>{l.find_instructions||'—'}</td>
+                    <td style={TD}>{l.contact_method||'—'}</td>
+                    <td style={{...TD, fontFamily:'monospace', fontSize:'0.68rem'}}>{l.phone||'—'}</td>
+                    <td style={{...TD, fontSize:'0.7rem'}}>{l.email ? <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a> : '—'}</td>
                     <td style={{...TD, textAlign:'center'}}>
                       <span style={{ padding:'3px 10px', borderRadius:20, fontSize:'0.68rem', fontWeight:700, background:pc.bg, color:pc.text, whiteSpace:'nowrap' }}>{pc.label}</span>
                     </td>
@@ -233,11 +247,7 @@ export default function LeadsPage() {
                         {Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
                       </select>
                     </td>
-                    <td style={{...TD, fontSize:'0.68rem'}}>
-                      {l.contact_method && <div>{l.contact_method}</div>}
-                      {l.decision_maker_title && <div style={{color:'#9ca3af', marginTop:1}}>{l.decision_maker_title}</div>}
-                    </td>
-                    <td style={{...TD, fontFamily:'monospace', fontSize:'0.68rem'}}>{l.phone}</td>
+                    <td style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.notes||'—'}</td>
                     <td style={{padding:'8px 4px', textAlign:'center'}}>
                       <button onClick={() => handleDelete(l.id)} title="Delete" style={{ background:'none', border:'none', cursor:'pointer', color:'#dc2626' }}><MI name="delete" size={15}/></button>
                     </td>

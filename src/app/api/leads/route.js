@@ -23,7 +23,8 @@ export async function GET(request) {
   const countRes = await queryOne(countSql, params);
   const total = parseInt(countRes?.c || 0);
 
-  sql += ' ORDER BY created_at DESC';
+  const sortOrder = searchParams.get('order') === 'asc' ? 'ASC' : 'DESC';
+  sql += ` ORDER BY created_at ${sortOrder}`;
   params.push(limit); sql += ` LIMIT $${params.length}`;
   params.push(offset); sql += ` OFFSET $${params.length}`;
 
