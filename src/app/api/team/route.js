@@ -49,7 +49,7 @@ export async function POST(request) {
             <p style="margin:0 0 8px;color:#475569;font-size:0.92rem;">Hi <strong>${name}</strong>,</p>
             <p style="margin:0 0 20px;color:#475569;font-size:0.88rem;">You've been invited to join <strong>TexasGTM CRM</strong> as <strong>${assignRole.replace('_', ' ')}</strong>.</p>
             <a href="${baseUrl}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:0.92rem;">Go to TexasGTM</a>
-            <p style="margin:20px 0 0;font-size:0.78rem;color:#94a3b8;">Use "Forgot Password" on the login page to set your password.</p>
+            <p style="margin:20px 0 0;font-size:0.78rem;color:#94a3b8;">Just enter your email on the login page — you'll receive an OTP to sign in.</p>
           </div>
         </div>`,
     });
