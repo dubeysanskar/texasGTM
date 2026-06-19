@@ -28,7 +28,7 @@ export async function POST(request) {
   const tempHash = await bcrypt.hash('temp_' + Date.now(), 10);
 
   const res = await query(
-    'INSERT INTO gtm_users (name, email, password_hash, role, is_active) VALUES ($1, $2, $3, $4, true) RETURNING id',
+    'INSERT INTO gtm_users (name, email, password_hash, role, is_active) VALUES ($1, $2, $3, $4, 1) RETURNING id',
     [name.trim(), email.toLowerCase().trim(), tempHash, assignRole]
   );
 
