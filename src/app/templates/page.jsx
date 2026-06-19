@@ -4,7 +4,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
-
 const PLATFORMS = [
   { key: 'email', label: 'Email', icon: 'mail', color: '#3b82f6' },
   { key: 'linkedin', label: 'LinkedIn', icon: 'work', color: '#0077b5' },
@@ -13,17 +12,15 @@ const PLATFORMS = [
   { key: 'telegram', label: 'Telegram', icon: 'send', color: '#0088cc' },
   { key: 'cold_calling', label: 'Cold Calling', icon: 'call', color: '#8b5cf6' },
 ];
-
-const LANGUAGES = [
+const LANGS = [
   { code: 'en', label: 'English', flag: '🇬🇧' },
   { code: 'ru', label: 'Russian', flag: '🇷🇺' },
-  { code: 'hi', label: 'Hindi', flag: '🇮🇳' },
+  { code: 'de', label: 'German', flag: '🇩🇪' },
   { code: 'ar', label: 'Arabic', flag: '🇦🇪' },
 ];
-
-const STATUS_STYLES = {
-  active:   { bg: '#dcfce7', text: '#166534', label: 'Active' },
-  draft:    { bg: '#fef3c7', text: '#92400e', label: 'Draft' },
+const SS = {
+  active: { bg: '#dcfce7', text: '#166534', label: 'Active' },
+  draft: { bg: '#fef3c7', text: '#92400e', label: 'Draft' },
   archived: { bg: '#f3f4f6', text: '#6b7280', label: 'Archived' },
 };
 
@@ -32,267 +29,247 @@ export default function TemplatesPage() {
   const router = useRouter();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activePlatform, setActivePlatform] = useState('all');
+  const [platform, setPlatform] = useState('all');
   const [showModal, setShowModal] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [openId, setOpenId] = useState(null);
   const [viewLang, setViewLang] = useState('en');
+  const [copied, setCopied] = useState('');
 
-  useEffect(() => {
-    if (!authLoading && !user) router.push('/');
-    if (!authLoading && user && !isAdmin) router.push('/dashboard');
-  }, [user, authLoading, router, isAdmin]);
+  useEffect(() => { if (!authLoading && !user) router.push('/'); }, [user, authLoading, router]);
 
-  const fetchTemplates = useCallback(async () => {
+  const fetch_ = useCallback(async () => {
     setLoading(true);
-    try {
-      const url = activePlatform === 'all' ? '/api/templates' : `/api/templates?platform=${activePlatform}`;
-      const res = await fetch(url);
-      setTemplates(await res.json());
-    } catch { setTemplates([]); }
+    const u = platform === 'all' ? '/api/templates' : `/api/templates?platform=${platform}`;
+    try { const r = await fetch(u); setTemplates(await r.json()); } catch { setTemplates([]); }
     setLoading(false);
-  }, [activePlatform]);
+  }, [platform]);
 
-  useEffect(() => { if (user && isAdmin) fetchTemplates(); }, [user, isAdmin, fetchTemplates]);
+  useEffect(() => { if (user && isAdmin) fetch_(); }, [user, isAdmin, fetch_]);
 
-  async function handleDelete(id) {
-    if (!confirm('Delete this template?')) return;
-    await fetch(`/api/templates/${id}`, { method: 'DELETE' });
-    fetchTemplates();
+  async function del(id) { if (!confirm('Delete?')) return; await fetch(`/api/templates/${id}`, { method: 'DELETE' }); fetch_(); }
+
+  function getTrans(t, lang) {
+    if (lang === (t.language || 'en')) return { subject: t.subject, body: t.body };
+    const tr = typeof t.translations === 'string' ? JSON.parse(t.translations || '{}') : (t.translations || {});
+    return tr[lang] || null;
   }
 
-  function openEdit(template) {
-    setEditingTemplate(template);
-    setViewLang(template.language || 'en');
-    setShowModal(true);
+  function hasLang(t, lang) {
+    if (lang === (t.language || 'en')) return true;
+    const tr = typeof t.translations === 'string' ? JSON.parse(t.translations || '{}') : (t.translations || {});
+    return !!tr[lang]?.body;
   }
 
-  function openNew() {
-    setEditingTemplate(null);
-    setViewLang('en');
-    setShowModal(true);
+  function copyText(text, id) {
+    navigator.clipboard.writeText(text);
+    setCopied(id);
+    setTimeout(() => setCopied(''), 2000);
   }
 
-  function getTranslatedContent(template, lang) {
-    if (lang === (template.language || 'en')) return { subject: template.subject, body: template.body };
-    const t = typeof template.translations === 'string' ? JSON.parse(template.translations || '{}') : (template.translations || {});
-    return t[lang] || { subject: template.subject, body: template.body };
-  }
-
-  const filtered = templates;
-  const platformObj = PLATFORMS.find(p => p.key === activePlatform);
+  // Group templates by base name (remove " — Touch N")
+  const grouped = {};
+  templates.forEach(t => {
+    const base = t.name.replace(/ — Touch \d$/, '');
+    if (!grouped[base]) grouped[base] = { name: base, touches: [] };
+    const touchMatch = t.name.match(/Touch (\d)$/);
+    grouped[base].touches.push({ ...t, touchNum: touchMatch ? parseInt(touchMatch[1]) : 0 });
+  });
+  Object.values(grouped).forEach(g => g.touches.sort((a, b) => a.touchNum - b.touchNum));
+  const groups = Object.values(grouped);
+  // Ungrouped (no touch pattern)
+  const ungrouped = templates.filter(t => !/ — Touch \d$/.test(t.name));
 
   if (authLoading || !user || !isAdmin) return <div className="page-loading">Loading...</div>;
 
   return (
     <div className="page-content">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>Templates</h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Outreach templates for all platforms with multi-language support</p>
+          <h1 className="page-title" style={{ marginBottom: 2, fontSize: '1.3rem' }}>Outreach Templates</h1>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{templates.length} templates • Multi-language • Copy-paste ready</p>
         </div>
-        <button onClick={openNew} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <MI name="add" size={16} /> New Template
+        <button onClick={() => { setEditing(null); setShowModal(true); }} className="btn btn-primary" style={{ fontSize: '0.75rem' }}>
+          <MI name="add" size={14} /> New Template
         </button>
       </div>
 
       {/* Platform Tabs */}
-      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
-        <button onClick={() => setActivePlatform('all')}
-          style={{ padding: '8px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, background: activePlatform === 'all' ? 'var(--primary)' : '#f3f4f6', color: activePlatform === 'all' ? '#fff' : '#6b7280', whiteSpace: 'nowrap', transition: 'all .2s' }}>
-          All Platforms
-        </button>
-        {PLATFORMS.map(p => (
-          <button key={p.key} onClick={() => setActivePlatform(p.key)}
-            style={{ padding: '8px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, background: activePlatform === p.key ? p.color : '#f3f4f6', color: activePlatform === p.key ? '#fff' : '#6b7280', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', transition: 'all .2s' }}>
-            <MI name={p.icon} size={16} /> {p.label}
+      <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 10, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        <PTab active={platform === 'all'} onClick={() => setPlatform('all')} color="#374151" label="All" />
+        {PLATFORMS.map(p => <PTab key={p.key} active={platform === p.key} onClick={() => setPlatform(p.key)} color={p.color} icon={p.icon} label={p.label} />)}
+      </div>
+
+      {/* Language Selector (global) */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, alignItems: 'center' }}>
+        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#6b7280', marginRight: 6 }}>Language:</span>
+        {LANGS.map(l => (
+          <button key={l.code} onClick={() => setViewLang(l.code)}
+            style={{ padding: '5px 12px', borderRadius: 8, border: viewLang === l.code ? '2px solid var(--primary)' : '1px solid var(--border)', background: viewLang === l.code ? '#eff6ff' : '#fff', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 600, color: viewLang === l.code ? 'var(--primary)' : '#6b7280', transition: 'all .15s' }}>
+            {l.flag} {l.label}
           </button>
         ))}
       </div>
 
-      {/* Templates Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading templates…</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-          <MI name="description" size={40} />
-          <p style={{ marginTop: 8, fontSize: '0.95rem' }}>No templates yet</p>
-          <p style={{ fontSize: '0.78rem', marginTop: 4 }}>Create your first outreach template</p>
-        </div>
+      {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading…</div> : groups.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}><MI name="description" size={40} /><p style={{ marginTop: 8 }}>No templates yet</p></div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-          {filtered.map(t => {
-            const plat = PLATFORMS.find(p => p.key === t.platform) || PLATFORMS[0];
-            const st = STATUS_STYLES[t.status] || STATUS_STYLES.draft;
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {groups.map(g => {
+            const isOpen = openId === g.name;
+            const plat = PLATFORMS.find(p => p.key === g.touches[0]?.platform) || PLATFORMS[0];
+            const st = SS[g.touches[0]?.status] || SS.active;
             return (
-              <div key={t.id} className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', cursor: 'pointer', transition: 'box-shadow .2s' }}
-                onClick={() => openEdit(t)} onMouseOver={e => e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'} onMouseOut={e => e.currentTarget.style.boxShadow = 'none'}>
+              <div key={g.name} style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
                 {/* Card Header */}
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fafafa' }}>
+                <div onClick={() => setOpenId(isOpen ? null : g.name)} style={{ padding: '14px 18px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isOpen ? '#f8fafc' : '#fff', transition: 'background .15s' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 8, background: plat.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><MI name={plat.icon} size={16} /></span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text)' }}>{g.name}</div>
+                      <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: 1 }}>{g.touches.length} touches • {plat.label}</div>
+                    </div>
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 28, height: 28, borderRadius: 8, background: plat.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <MI name={plat.icon} size={15} />
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: '#6b7280', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{plat.label}</span>
+                    <span style={{ fontSize: '0.66rem', fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: st.bg, color: st.text }}>{st.label}</span>
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      {LANGS.filter(l => g.touches.some(t => hasLang(t, l.code))).map(l => <span key={l.code} style={{ fontSize: '0.75rem' }} title={l.label}>{l.flag}</span>)}
+                    </div>
+                    <MI name={isOpen ? 'expand_less' : 'expand_more'} size={20} />
                   </div>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 600, padding: '2px 10px', borderRadius: 20, background: st.bg, color: st.text }}>{st.label}</span>
                 </div>
-                {/* Card Body */}
-                <div style={{ padding: '14px 16px' }}>
-                  <h3 style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: 6, color: 'var(--text)' }}>{t.name}</h3>
-                  {t.subject && <div style={{ fontSize: '0.72rem', color: '#6b7280', marginBottom: 6 }}>Subject: {t.subject}</div>}
-                  <p style={{ fontSize: '0.75rem', color: '#9ca3af', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {t.body}
-                  </p>
-                </div>
-                {/* Card Footer */}
-                <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fafafa' }}>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {LANGUAGES.filter(l => {
-                      const trans = typeof t.translations === 'string' ? JSON.parse(t.translations || '{}') : (t.translations || {});
-                      return l.code === (t.language || 'en') || trans[l.code];
-                    }).map(l => (
-                      <span key={l.code} title={l.label} style={{ fontSize: '0.8rem' }}>{l.flag}</span>
-                    ))}
+
+                {/* Expanded: Touch tabs with content */}
+                {isOpen && (
+                  <div style={{ borderTop: '1px solid var(--border)' }}>
+                    {g.touches.map(t => {
+                      const content = getTrans(t, viewLang);
+                      const available = content !== null;
+                      const copyId = `${t.id}-${viewLang}`;
+                      const fullText = available ? (t.platform === 'email' && content.subject ? content.subject + '\n\n' + content.body : content.body) : '';
+                      return (
+                        <div key={t.id} style={{ borderTop: '1px solid #f1f5f9', padding: '14px 18px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: t.touchNum === 1 ? '#3b82f6' : t.touchNum === 2 ? '#f59e0b' : '#10b981', background: t.touchNum === 1 ? '#eff6ff' : t.touchNum === 2 ? '#fef3c7' : '#d1fae5', padding: '3px 10px', borderRadius: 20 }}>
+                                Touch {t.touchNum || ''}
+                              </span>
+                              {!available && <span style={{ fontSize: '0.68rem', color: '#dc2626' }}>No {LANGS.find(l => l.code === viewLang)?.label} translation</span>}
+                            </div>
+                            <div style={{ display: 'flex', gap: 4 }}>
+                              <button onClick={() => copyText(fullText, copyId)} disabled={!available} title="Copy"
+                                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)', background: copied === copyId ? '#dcfce7' : '#fff', cursor: available ? 'pointer' : 'default', fontSize: '0.7rem', fontWeight: 600, color: copied === copyId ? '#166534' : '#374151', transition: 'all .15s' }}>
+                                {copied === copyId ? '✓ Copied' : '📋 Copy'}
+                              </button>
+                              <button onClick={() => { setEditing(t); setShowModal(true); }} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff', cursor: 'pointer', fontSize: '0.7rem', color: '#6b7280' }}>
+                                <MI name="edit" size={13} />
+                              </button>
+                              <button onClick={() => del(t.id)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fff', cursor: 'pointer', fontSize: '0.7rem', color: '#dc2626' }}>
+                                <MI name="delete" size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          {available ? (
+                            <div style={{ background: '#f8fafc', borderRadius: 10, padding: '14px 16px', fontFamily: 'inherit', fontSize: '0.8rem', lineHeight: 1.7, color: '#1f2937', whiteSpace: 'pre-wrap', wordBreak: 'break-word', border: '1px solid #e5e7eb', direction: viewLang === 'ar' ? 'rtl' : 'ltr' }}>
+                              {fullText}
+                            </div>
+                          ) : (
+                            <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: '0.78rem' }}>
+                              Click edit to add a {LANGS.find(l => l.code === viewLang)?.label} translation
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                  <button onClick={e => { e.stopPropagation(); handleDelete(t.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4 }}>
-                    <MI name="delete" size={16} />
-                  </button>
-                </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Editor Modal */}
-      {showModal && <TemplateModal template={editingTemplate} lang={viewLang} setLang={setViewLang} onClose={() => setShowModal(false)} onSave={fetchTemplates} getTranslatedContent={getTranslatedContent} />}
+      {showModal && <Modal template={editing} onClose={() => setShowModal(false)} onSave={() => { fetch_(); setShowModal(false); }} />}
     </div>
   );
 }
 
-function TemplateModal({ template, lang, setLang, onClose, onSave, getTranslatedContent }) {
+function PTab({ active, onClick, color, icon, label }) {
+  return (
+    <button onClick={onClick} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, background: active ? color : '#f3f4f6', color: active ? '#fff' : '#6b7280', display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', transition: 'all .15s' }}>
+      {icon && <MI name={icon} size={14} />} {label}
+    </button>
+  );
+}
+
+function Modal({ template, onClose, onSave }) {
   const isEdit = !!template;
   const [form, setForm] = useState({
-    name: template?.name || '',
-    platform: template?.platform || 'email',
-    status: template?.status || 'active',
-    subject: template?.subject || '',
-    body: template?.body || '',
-    language: template?.language || 'en',
+    name: template?.name || '', platform: template?.platform || 'email',
+    status: template?.status || 'active', subject: template?.subject || '',
+    body: template?.body || '', language: template?.language || 'en',
   });
   const [translations, setTranslations] = useState(() => {
     if (!template) return {};
     return typeof template.translations === 'string' ? JSON.parse(template.translations || '{}') : (template.translations || {});
   });
+  const [lang, setLang] = useState(template?.language || 'en');
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const [err, setErr] = useState('');
 
-  // When language tab changes, load that language's content into editing area
-  const currentContent = lang === form.language
-    ? { subject: form.subject, body: form.body }
-    : (translations[lang] || { subject: '', body: '' });
+  const cur = lang === form.language ? { subject: form.subject, body: form.body } : (translations[lang] || { subject: '', body: '' });
 
-  function updateContent(field, value) {
-    if (lang === form.language) {
-      setForm(f => ({ ...f, [field]: value }));
-    } else {
-      setTranslations(t => ({ ...t, [lang]: { ...t[lang], [field]: value } }));
-    }
+  function upd(field, val) {
+    if (lang === form.language) setForm(f => ({ ...f, [field]: val }));
+    else setTranslations(t => ({ ...t, [lang]: { ...t[lang], [field]: val } }));
   }
 
-  async function handleSave() {
-    if (!form.name || !(lang === form.language ? form.body : translations[lang]?.body || form.body)) {
-      setError('Name and body are required');
-      return;
-    }
-    setSaving(true); setError('');
-    const payload = { ...form, translations };
-
+  async function save() {
+    if (!form.name || !(lang === form.language ? form.body : translations[lang]?.body || form.body)) { setErr('Name and body required'); return; }
+    setSaving(true); setErr('');
     const url = isEdit ? `/api/templates/${template.id}` : '/api/templates';
     const method = isEdit ? 'PUT' : 'POST';
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-
-    if (res.ok) { onSave(); onClose(); }
-    else { const d = await res.json(); setError(d.error || 'Failed'); }
+    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, translations }) });
+    if (r.ok) onSave(); else { const d = await r.json(); setErr(d.error || 'Failed'); }
     setSaving(false);
   }
 
   return (
     <div className="leads-modal-overlay" onClick={onClose}>
-      <div className="leads-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, width: '95vw' }}>
-        {/* Modal Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="leads-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 660, width: '95vw' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
           <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>{isEdit ? 'Edit Template' : 'New Template'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
         </div>
-
-        {error && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '8px 12px', borderRadius: 8, fontSize: '0.78rem', marginBottom: 12 }}>{error}</div>}
-
-        {/* Meta fields */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
-          <div className="leads-form-field"><label>Template Name *</label>
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
-          </div>
+        {err && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '6px 12px', borderRadius: 8, fontSize: '0.75rem', marginBottom: 10 }}>{err}</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+          <div className="leads-form-field"><label>Name *</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
           <div className="leads-form-field"><label>Platform</label>
-            <select value={form.platform} onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}>
-              {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-            </select>
+            <select value={form.platform} onChange={e => setForm(f => ({ ...f, platform: e.target.value }))}>{PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}</select>
           </div>
           <div className="leads-form-field"><label>Status</label>
-            <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-              <option value="active">Active</option>
-              <option value="draft">Draft</option>
-              <option value="archived">Archived</option>
-            </select>
+            <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}><option value="active">Active</option><option value="draft">Draft</option><option value="archived">Archived</option></select>
           </div>
         </div>
-
-        {/* Language Tabs */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>Language</label>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {LANGUAGES.map(l => {
-              const hasContent = l.code === form.language || translations[l.code]?.body;
-              return (
-                <button key={l.code} onClick={() => setLang(l.code)}
-                  style={{ padding: '6px 14px', borderRadius: 8, border: lang === l.code ? '2px solid var(--primary)' : '1px solid var(--border)', background: lang === l.code ? 'var(--primary-light, #eff6ff)' : '#fff', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600, color: lang === l.code ? 'var(--primary)' : '#6b7280', display: 'flex', alignItems: 'center', gap: 6, transition: 'all .2s', position: 'relative' }}>
-                  <span>{l.flag}</span> {l.label}
-                  {hasContent && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', position: 'absolute', top: 3, right: 3 }} />}
-                </button>
-              );
-            })}
-          </div>
-          {lang !== form.language && !translations[lang]?.body && (
-            <p style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: 6 }}>⚠ No translation for {LANGUAGES.find(l => l.code === lang)?.label} yet — type below to add one</p>
-          )}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          {LANGS.map(l => {
+            const has = l.code === form.language || translations[l.code]?.body;
+            return <button key={l.code} onClick={() => setLang(l.code)} style={{ padding: '5px 12px', borderRadius: 8, border: lang === l.code ? '2px solid var(--primary)' : '1px solid var(--border)', background: lang === l.code ? '#eff6ff' : '#fff', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 600, color: lang === l.code ? 'var(--primary)' : '#6b7280', position: 'relative' }}>
+              {l.flag} {l.label} {has && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#10b981', position: 'absolute', top: 2, right: 2 }} />}
+            </button>;
+          })}
         </div>
-
-        {/* Subject (for email) */}
-        {form.platform === 'email' && (
-          <div className="leads-form-field" style={{ marginBottom: 12 }}>
-            <label>Subject Line</label>
-            <input value={currentContent.subject || ''} onChange={e => updateContent('subject', e.target.value)} placeholder="Email subject..." />
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="leads-form-field" style={{ marginBottom: 16 }}>
-          <label>Template Body *</label>
-          <textarea rows={10} value={currentContent.body || ''} onChange={e => updateContent('body', e.target.value)}
-            placeholder={`Write your ${PLATFORMS.find(p => p.key === form.platform)?.label || ''} template here...`}
-            style={{ fontFamily: 'inherit', lineHeight: 1.6, fontSize: '0.82rem' }} />
+        {form.platform === 'email' && <div className="leads-form-field" style={{ marginBottom: 10 }}><label>Subject</label><input value={cur.subject || ''} onChange={e => upd('subject', e.target.value)} /></div>}
+        <div className="leads-form-field" style={{ marginBottom: 14 }}><label>Body *</label>
+          <textarea rows={10} value={cur.body || ''} onChange={e => upd('body', e.target.value)} style={{ fontFamily: 'inherit', lineHeight: 1.6, fontSize: '0.82rem', direction: lang === 'ar' ? 'rtl' : 'ltr' }} />
         </div>
-
-        {/* Placeholders hint */}
-        <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginBottom: 16, padding: '8px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)' }}>
-          💡 <strong>Variables:</strong> Use <code>{'{{company}}'}</code>, <code>{'{{decision_maker}}'}</code>, <code>{'{{city}}'}</code>, <code>{'{{sector}}'}</code>, <code>{'{{pain_point}}'}</code> as placeholders that get filled when sending.
+        <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginBottom: 14, padding: '6px 10px', background: '#f8fafc', borderRadius: 6 }}>
+          💡 Use <code>{'{{company}}'}</code>, <code>{'{{decision_maker}}'}</code>, <code>{'{{city}}'}</code> as placeholders
         </div>
-
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
           <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="btn btn-primary">{saving ? 'Saving…' : isEdit ? 'Update Template' : 'Create Template'}</button>
+          <button onClick={save} disabled={saving} className="btn btn-primary">{saving ? 'Saving…' : isEdit ? 'Update' : 'Create'}</button>
         </div>
       </div>
     </div>
