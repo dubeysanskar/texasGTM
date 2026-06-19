@@ -246,6 +246,13 @@ tbody tr:hover { background: rgba(99,102,241,0.03); }
 .leads-form-field input, .leads-form-field select, .leads-form-field textarea { width: 100%; font-size: 0.82rem; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; outline: none; }
 .leads-form-field input:focus, .leads-form-field select:focus, .leads-form-field textarea:focus { border-color: var(--primary); }
 
+/* ═══ Excel-like Cell Selection ═══ */
+table td { transition: outline 0.1s, background 0.1s; }
+table td:focus, table td:active { outline: 2px solid #3b82f6; outline-offset: -2px; background: #eff6ff !important; z-index: 2; position: relative; }
+table td::selection { background: #bfdbfe; color: #1e3a5f; }
+table tr:hover td { background: rgba(59,130,246,0.03); }
+table td[style*="cursor: cell"] { -webkit-user-select: text; user-select: text; }
+
 /* ═══ Skeleton Loading ═══ */
 .skeleton { background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%); background-size: 200% 100%; animation: skeletonShimmer 1.5s ease infinite; border-radius: 6px; }
 @keyframes skeletonShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }

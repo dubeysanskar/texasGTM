@@ -51,18 +51,27 @@ export async function POST(request) {
   return NextResponse.json({ id: result.rows[0].id });
 }
 
-// Bulk status update
+// Bulk status / template update
 export async function PATCH(request) {
   const user = getUserFromRequest(request);
   if (!user || !isManager(user.role)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { ids, status } = await request.json();
-  if (!ids?.length || !status) return NextResponse.json({ error: 'ids and status required' }, { status: 400 });
+  const { ids, status, template_id } = await request.json();
+  if (!ids?.length) return NextResponse.json({ error: 'ids required' }, { status: 400 });
+  if (!status && template_id === undefined) return NextResponse.json({ error: 'status or template_id required' }, { status: 400 });
 
   const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-  await query(`UPDATE gtm_leads SET status = $${ids.length + 1}, updated_at = NOW() WHERE id IN (${placeholders})`, [...ids, status]);
-
-  await query('INSERT INTO gtm_activity_logs (user_id, user_name, user_role, action, category, entity_type) VALUES ($1,$2,$3,$4,$5,$6)',
-    [user.id, user.name, user.role, `Bulk updated ${ids.length} leads to "${status}"`, 'lead', 'lead']);
+  
+  if (status) {
+    await query(`UPDATE gtm_leads SET status = $${ids.length + 1}, updated_at = NOW() WHERE id IN (${placeholders})`, [...ids, status]);
+    await query('INSERT INTO gtm_activity_logs (user_id, user_name, user_role, action, category, entity_type) VALUES ($1,$2,$3,$4,$5,$6)',
+      [user.id, user.name, user.role, `Bulk updated ${ids.length} leads to "${status}"`, 'lead', 'lead']);
+  }
+  
+  if (template_id !== undefined) {
+    await query(`UPDATE gtm_leads SET last_template_id = $${ids.length + 1}, updated_at = NOW() WHERE id IN (${placeholders})`, [...ids, template_id]);
+    await query('INSERT INTO gtm_activity_logs (user_id, user_name, user_role, action, category, entity_type) VALUES ($1,$2,$3,$4,$5,$6)',
+      [user.id, user.name, user.role, `Bulk assigned template to ${ids.length} leads`, 'lead', 'lead']);
+  }
 
   return NextResponse.json({ updated: ids.length });
 }

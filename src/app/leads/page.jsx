@@ -48,6 +48,11 @@ export default function LeadsPage() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [templates, setTemplates] = useState([]);
   const [tplSearch, setTplSearch] = useState({});
+  const [rangeFrom, setRangeFrom] = useState('');
+  const [rangeTo, setRangeTo] = useState('');
+  const [bulkTplId, setBulkTplId] = useState('');
+  const [bulkTplSearch, setBulkTplSearch] = useState('');
+  const [showBulkTpl, setShowBulkTpl] = useState(false);
 
   useEffect(() => { if (!authLoading && !user) router.push('/'); }, [user, authLoading, router]);
 
@@ -95,6 +100,18 @@ export default function LeadsPage() {
     await fetch('/api/leads', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected], status: bulkStatus }) });
     setSelected(new Set()); setBulkStatus(''); fetchLeads(); fetchStats();
   }
+  async function handleBulkTemplate(tplId) {
+    if (!selected.size || !tplId) return;
+    await fetch('/api/leads', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected], template_id: parseInt(tplId) }) });
+    setShowBulkTpl(false); setBulkTplSearch(''); fetchLeads();
+  }
+  function handleRangeSelect() {
+    const from = parseInt(rangeFrom), to = parseInt(rangeTo);
+    if (isNaN(from) || isNaN(to) || from > to) return;
+    const ids = leads.filter(l => l.id >= from && l.id <= to).map(l => l.id);
+    setSelected(new Set(ids));
+    setRangeFrom(''); setRangeTo('');
+  }
   async function handleExport() {
     setExporting(true);
     try {
@@ -112,9 +129,10 @@ export default function LeadsPage() {
   function toggleSelectAll() { if (selected.size === leads.length) setSelected(new Set()); else setSelected(new Set(leads.map(l => l.id))); }
 
   // Excel-like cell styles
-  const TH = { padding:'8px 10px', textAlign:'left', fontSize:'0.7rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.3px', borderRight:'1px solid #e5e7eb', borderBottom:'2px solid #d1d5db', whiteSpace:'nowrap', userSelect:'none' };
-  const TD = { padding:'6px 10px', borderRight:'1px solid #f1f5f9', borderBottom:'1px solid #e5e7eb', fontSize:'0.74rem', color:'#374151', userSelect:'text', cursor:'text', verticalAlign:'top' };
+  const TH = { padding:'8px 10px', textAlign:'left', fontSize:'0.7rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.3px', borderRight:'1px solid #d1d5db', borderBottom:'2px solid #9ca3af', whiteSpace:'nowrap', userSelect:'none', background:'#f3f4f6' };
+  const TD = { padding:'5px 8px', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', fontSize:'0.74rem', color:'#1f2937', userSelect:'text', cursor:'cell', verticalAlign:'top', lineHeight:1.5 };
   const PB = { padding:'5px 10px', border:'1px solid var(--border)', borderRadius:6, background:'#fff', cursor:'pointer', fontSize:'0.72rem', color:'#374151' };
+  const BB = { fontSize:'0.72rem', padding:'5px 12px', borderRadius:6, border:'1px solid #93c5fd', background:'#fff', cursor:'pointer', color:'#1e40af', fontWeight:600, display:'flex', alignItems:'center', gap:4 };
 
   if (authLoading || !user) return <div className="page-loading">Loading...</div>;
 
@@ -189,19 +207,51 @@ export default function LeadsPage() {
         )}
       </div>
 
-      {/* Bulk Actions Bar */}
+      {/* Range Selector + Bulk Actions Bar */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom: selected.size > 0 ? 0 : 12, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:4, fontSize:'0.72rem', color:'#6b7280' }}>
+          <span style={{ fontWeight:600 }}>Select Range:</span>
+          <input type="number" placeholder="From ID" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)} style={{ width:70, padding:'4px 6px', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.72rem' }}/>
+          <span>→</span>
+          <input type="number" placeholder="To ID" value={rangeTo} onChange={e => setRangeTo(e.target.value)} style={{ width:70, padding:'4px 6px', borderRadius:6, border:'1px solid var(--border)', fontSize:'0.72rem' }}/>
+          <button onClick={handleRangeSelect} style={{ ...BB, padding:'4px 10px', fontSize:'0.68rem' }}><MI name="select_all" size={13}/> Select</button>
+        </div>
+      </div>
+
       {selected.size > 0 && (
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', background:'#eff6ff', borderRadius:10, marginBottom:12, border:'1px solid #bfdbfe' }}>
-          <span style={{ fontSize:'0.78rem', fontWeight:600, color:'#1e40af' }}>{selected.size} selected</span>
-          <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid #93c5fd', fontSize:'0.75rem' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', background:'#eff6ff', borderRadius:10, marginBottom:12, border:'1px solid #bfdbfe', flexWrap:'wrap' }}>
+          <span style={{ fontSize:'0.78rem', fontWeight:700, color:'#1e40af' }}>{selected.size} selected</span>
+          <span style={{ width:1, height:20, background:'#bfdbfe' }}/>
+          <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid #93c5fd', fontSize:'0.72rem' }}>
             <option value="">Set status…</option>{Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
           </select>
           <button onClick={handleBulkStatus} disabled={!bulkStatus} className="btn btn-primary" style={{ fontSize:'0.72rem', padding:'5px 14px' }}>Apply</button>
           <span style={{ width:1, height:20, background:'#bfdbfe' }}/>
-          <button onClick={() => { const emails = leads.filter(l => selected.has(l.id) && l.email).map(l => l.email).join(', '); if(emails){navigator.clipboard.writeText(emails);alert(`${emails.split(',').length} emails copied!`)}else{alert('No emails found')} }} style={{ fontSize:'0.72rem', padding:'5px 12px', borderRadius:6, border:'1px solid #93c5fd', background:'#fff', cursor:'pointer', color:'#1e40af', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+          <div style={{ position:'relative' }}>
+            <button onClick={() => setShowBulkTpl(!showBulkTpl)} style={BB}>
+              <MI name="description" size={13}/> Set Template
+            </button>
+            {showBulkTpl && (
+              <div style={{ position:'absolute', top:'100%', left:0, width:280, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,.15)', marginTop:4, zIndex:100 }}>
+                <input autoFocus type="text" placeholder="Search template…" value={bulkTplSearch} onChange={e => setBulkTplSearch(e.target.value)}
+                  style={{ width:'100%', padding:'8px 10px', border:'none', borderBottom:'1px solid #e5e7eb', fontSize:'0.72rem', outline:'none' }}/>
+                <div style={{ maxHeight:200, overflowY:'auto' }}>
+                  {templates.filter(t => !bulkTplSearch || [t.name,t.subject,t.body].join(' ').toLowerCase().includes(bulkTplSearch.toLowerCase())).map(t => (
+                    <div key={t.id} onClick={() => handleBulkTemplate(t.id)} style={{ padding:'6px 10px', cursor:'pointer', fontSize:'0.7rem', borderBottom:'1px solid #f8fafc' }}
+                      onMouseOver={e => e.currentTarget.style.background='#eff6ff'} onMouseOut={e => e.currentTarget.style.background='#fff'}>
+                      <div style={{ fontWeight:600 }}>{t.name}</div>
+                      {t.subject && <div style={{ fontSize:'0.62rem', color:'#6b7280', marginTop:1 }}>{t.subject}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <span style={{ width:1, height:20, background:'#bfdbfe' }}/>
+          <button onClick={() => { const emails = leads.filter(l => selected.has(l.id) && l.email).map(l => l.email).join(', '); if(emails){navigator.clipboard.writeText(emails);alert(`${emails.split(',').length} emails copied!`)}else{alert('No emails found')} }} style={BB}>
             <MI name="mail" size={13}/> Copy Emails
           </button>
-          <button onClick={() => { const phones = leads.filter(l => selected.has(l.id) && l.phone).map(l => l.phone).join(', '); if(phones){navigator.clipboard.writeText(phones);alert(`${phones.split(',').length} phones copied!`)}else{alert('No phone numbers found')} }} style={{ fontSize:'0.72rem', padding:'5px 12px', borderRadius:6, border:'1px solid #93c5fd', background:'#fff', cursor:'pointer', color:'#1e40af', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+          <button onClick={() => { const phones = leads.filter(l => selected.has(l.id) && l.phone).map(l => l.phone).join(', '); if(phones){navigator.clipboard.writeText(phones);alert(`${phones.split(',').length} phones copied!`)}else{alert('No phone numbers found')} }} style={BB}>
             <MI name="call" size={13}/> Copy Phones
           </button>
           <span style={{ width:1, height:20, background:'#bfdbfe' }}/>
@@ -248,21 +298,21 @@ export default function LeadsPage() {
                     <td style={{ padding:'8px', textAlign:'center' }}>
                       <input type="checkbox" checked={isSel} onChange={() => toggleSelect(l.id)} style={{ cursor:'pointer' }}/>
                     </td>
-                    <td style={{ padding:'8px', fontFamily:'monospace', fontSize:'0.68rem', color:'#9ca3af' }}>{l.id}</td>
-                    <td style={{ padding:'8px 10px' }}>
+                    <td tabIndex={0} style={{...TD, fontFamily:'monospace', fontSize:'0.68rem', color:'#9ca3af', borderRight:'1px solid #e5e7eb'}}>{l.id}</td>
+                    <td tabIndex={0} style={{...TD}}>
                       <div style={{ fontWeight:600, fontSize:'0.78rem', color:'var(--text)' }}>{l.company_name}</div>
                       {l.domain && <div style={{ fontSize:'0.64rem', color:'#9ca3af', marginTop:1 }}>{l.domain}</div>}
                     </td>
-                    <td style={TD}>{SL[l.sector]||l.sector||'—'}</td>
-                    <td style={TD}>{[l.city,l.region].filter(Boolean).join(', ')||'—'}</td>
-                    <td style={TD}>{l.company_size||'—'}</td>
-                    <td style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.pain_point||'—'}</td>
-                    <td style={TD}>{l.decision_maker_title||'—'}</td>
-                    <td style={{...TD, fontSize:'0.7rem', maxWidth:160, whiteSpace:'normal', lineHeight:1.4}}>{l.find_instructions||'—'}</td>
-                    <td style={TD}>{l.contact_method||'—'}</td>
-                    <td style={{...TD, fontFamily:'monospace', fontSize:'0.68rem'}}>{l.phone||'—'}</td>
-                    <td style={{...TD, fontSize:'0.7rem'}}>{l.email ? <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a> : '—'}</td>
-                    <td style={{...TD, textAlign:'center'}}>
+                    <td tabIndex={0} style={TD}>{SL[l.sector]||l.sector||'—'}</td>
+                    <td tabIndex={0} style={TD}>{[l.city,l.region].filter(Boolean).join(', ')||'—'}</td>
+                    <td tabIndex={0} style={TD}>{l.company_size||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.pain_point||'—'}</td>
+                    <td tabIndex={0} style={TD}>{l.decision_maker_title||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem', maxWidth:160, whiteSpace:'normal', lineHeight:1.4}}>{l.find_instructions||'—'}</td>
+                    <td tabIndex={0} style={TD}>{l.contact_method||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontFamily:'monospace', fontSize:'0.68rem'}}>{l.phone||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem'}}>{l.email ? <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a> : '—'}</td>
+                    <td tabIndex={0} style={{...TD, textAlign:'center'}}>
                       <span style={{ padding:'3px 10px', borderRadius:20, fontSize:'0.68rem', fontWeight:700, background:pc.bg, color:pc.text, whiteSpace:'nowrap' }}>{pc.label}</span>
                     </td>
                     <td style={TD}>
@@ -271,7 +321,7 @@ export default function LeadsPage() {
                         {Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
                       </select>
                     </td>
-                    <td style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.notes||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.notes||'—'}</td>
                     <td style={{...TD, minWidth:180, position:'relative'}}>
                       <TemplateSelector leadId={l.id} currentId={l.last_template_id} templates={templates} onChange={handleTemplateChange} tplSearch={tplSearch} setTplSearch={setTplSearch} />
                     </td>
