@@ -182,6 +182,14 @@ export default function LeadsPage() {
             <option value="">Set status…</option>{Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
           </select>
           <button onClick={handleBulkStatus} disabled={!bulkStatus} className="btn btn-primary" style={{ fontSize:'0.72rem', padding:'5px 14px' }}>Apply</button>
+          <span style={{ width:1, height:20, background:'#bfdbfe' }}/>
+          <button onClick={() => { const emails = leads.filter(l => selected.has(l.id) && l.email).map(l => l.email).join(', '); if(emails){navigator.clipboard.writeText(emails);alert(`${emails.split(',').length} emails copied!`)}else{alert('No emails found')} }} style={{ fontSize:'0.72rem', padding:'5px 12px', borderRadius:6, border:'1px solid #93c5fd', background:'#fff', cursor:'pointer', color:'#1e40af', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+            <MI name="mail" size={13}/> Copy Emails
+          </button>
+          <button onClick={() => { const phones = leads.filter(l => selected.has(l.id) && l.phone).map(l => l.phone).join(', '); if(phones){navigator.clipboard.writeText(phones);alert(`${phones.split(',').length} phones copied!`)}else{alert('No phone numbers found')} }} style={{ fontSize:'0.72rem', padding:'5px 12px', borderRadius:6, border:'1px solid #93c5fd', background:'#fff', cursor:'pointer', color:'#1e40af', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+            <MI name="call" size={13}/> Copy Phones
+          </button>
+          <span style={{ width:1, height:20, background:'#bfdbfe' }}/>
           <button onClick={() => setSelected(new Set())} style={{ fontSize:'0.72rem', color:'#6b7280', background:'none', border:'none', cursor:'pointer' }}>Deselect all</button>
         </div>
       )}
