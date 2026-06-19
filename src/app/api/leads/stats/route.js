@@ -8,13 +8,13 @@ export async function GET(request) {
 
   const total = await queryOne('SELECT COUNT(*) as c FROM gtm_leads');
   const hot = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE priority = 'HOT'");
-  const warm = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE priority = 'WARM'");
-  const contacted = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE status != 'not_contacted'");
-  const meetings = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE status = 'meeting_set'");
-  const won = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE status = 'won'");
+  const high = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE priority = 'HIGH'");
+  const active = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE status NOT IN ('not_contacted','not_interested')");
+  const signed = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE status = 'contract_signed'");
+  const partner = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE priority = 'PARTNER'");
 
   return NextResponse.json({
-    total: parseInt(total?.c||0), hot: parseInt(hot?.c||0), warm: parseInt(warm?.c||0),
-    contacted: parseInt(contacted?.c||0), meetings: parseInt(meetings?.c||0), won: parseInt(won?.c||0),
+    total: parseInt(total?.c||0), hot: parseInt(hot?.c||0), high: parseInt(high?.c||0),
+    active: parseInt(active?.c||0), signed: parseInt(signed?.c||0), partner: parseInt(partner?.c||0),
   });
 }
