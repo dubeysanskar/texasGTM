@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 
-const STATUS_CONFIG = {
+const SC = {
   not_contacted:   { label: 'Not Contacted',   bg: '#F1EFE8', text: '#5F5E5A', dot: '#888780', row: '#ffffff' },
   touch_1:         { label: 'Touch 1',          bg: '#DBEAFE', text: '#1e40af', dot: '#3b82f6', row: '#eff6ff' },
   touch_2:         { label: 'Touch 2',          bg: '#FEF3C7', text: '#92400e', dot: '#f59e0b', row: '#fffbeb' },
@@ -18,19 +18,13 @@ const STATUS_CONFIG = {
   not_interested:  { label: 'Not Interested',    bg: '#FCEBEB', text: '#A32D2D', dot: '#E24B4A', row: '#fef2f2' },
   follow_up_later: { label: 'Follow Up Later',   bg: '#FFF2CC', text: '#7D6608', dot: '#EF9F27', row: '#fefce8' },
 };
-const PRIORITY_CONFIG = {
-  HOT:     { label: '🔥 HOT',     bg: '#FCE4D6', text: '#993C1D' },
-  HIGH:    { label: '⚡ HIGH',    bg: '#E2F0D9', text: '#3B6D11' },
-  MEDIUM:  { label: '● MEDIUM',   bg: '#DBEAFE', text: '#185FA5' },
+const PC = {
+  HOT: { label: '🔥 HOT', bg: '#FCE4D6', text: '#993C1D' },
+  HIGH: { label: '⚡ HIGH', bg: '#E2F0D9', text: '#3B6D11' },
+  MEDIUM: { label: '● MEDIUM', bg: '#DBEAFE', text: '#185FA5' },
   PARTNER: { label: '🤝 PARTNER', bg: '#EEEDFE', text: '#3C3489' },
 };
-const SECTOR_LABELS = {
-  construction: 'Construction', manufacturing: 'Manufacturing',
-  warehouse_logistics: 'Warehouse/Logistics', food_processing: 'Food Processing',
-  metallurgy: 'Metallurgy', mining: 'Mining', chemicals: 'Chemicals',
-  automotive: 'Automotive', hospitality: 'Hospitality', retail: 'Retail',
-  agency_partner: 'Agency Partner', industry_association: 'Industry Association', other: 'Other',
-};
+const SL = { construction:'Construction', manufacturing:'Manufacturing', warehouse_logistics:'Warehouse/Logistics', food_processing:'Food Processing', metallurgy:'Metallurgy', mining:'Mining', chemicals:'Chemicals', automotive:'Automotive', hospitality:'Hospitality', retail:'Retail', agency_partner:'Agency Partner', industry_association:'Industry Association', other:'Other' };
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
 
 export default function LeadsPage() {
@@ -40,251 +34,212 @@ export default function LeadsPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ sector: '', priority: '', status: '', search: '' });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [showBulkLookup, setShowBulkLookup] = useState(false);
+  const [bulkLookupText, setBulkLookupText] = useState('');
+  const [perPage, setPerPage] = useState(50);
 
-  useEffect(() => {
-    if (!authLoading && !user) router.push('/');
-    if (!authLoading && user && !isAdmin) router.push('/dashboard');
-  }, [user, authLoading, router, isAdmin]);
+  useEffect(() => { if (!authLoading && !user) router.push('/'); }, [user, authLoading, router]);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
+    const p = new URLSearchParams();
+    if (filters.sector) p.set('sector', filters.sector);
+    if (filters.priority) p.set('priority', filters.priority);
+    if (filters.status) p.set('status', filters.status);
+    if (filters.search) p.set('search', filters.search);
+    p.set('page', page); p.set('limit', perPage);
     try {
-      const params = new URLSearchParams();
-      if (filters.sector) params.set('sector', filters.sector);
-      if (filters.priority) params.set('priority', filters.priority);
-      if (filters.status) params.set('status', filters.status);
-      if (filters.search) params.set('search', filters.search);
-      const res = await fetch(`/api/leads?${params}`);
-      const data = await res.json();
-      setLeads(data.leads || []);
+      const res = await fetch(`/api/leads?${p}`);
+      const d = await res.json();
+      setLeads(d.leads || []); setTotal(d.total || 0); setTotalPages(d.totalPages || 1);
     } catch { setLeads([]); }
     setLoading(false);
-  }, [filters]);
+  }, [filters, page, perPage]);
 
   const fetchStats = useCallback(async () => {
-    try { const res = await fetch('/api/leads/stats'); setStats(await res.json()); } catch {}
+    try { const r = await fetch('/api/leads/stats'); setStats(await r.json()); } catch {}
   }, []);
 
-  useEffect(() => { if (user && isAdmin) { fetchLeads(); fetchStats(); } }, [user, isAdmin, fetchLeads, fetchStats]);
+  useEffect(() => { if (user) { fetchLeads(); fetchStats(); } }, [user, fetchLeads, fetchStats]);
+  useEffect(() => { setPage(1); }, [filters, perPage]);
 
-  async function handleStatusChange(leadId, newStatus) {
-    await fetch(`/api/leads/${leadId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
+  async function handleStatusChange(id, s) {
+    await fetch(`/api/leads/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s }) });
     fetchLeads(); fetchStats();
   }
-
-  async function handleDelete(leadId) {
-    if (!confirm('Delete this lead permanently?')) return;
-    await fetch(`/api/leads/${leadId}`, { method: 'DELETE' });
-    fetchLeads(); fetchStats();
+  async function handleDelete(id) {
+    if (!confirm('Delete this lead?')) return;
+    await fetch(`/api/leads/${id}`, { method: 'DELETE' }); fetchLeads(); fetchStats();
   }
-
+  async function handleBulkStatus() {
+    if (!selected.size || !bulkStatus) return;
+    await fetch('/api/leads', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [...selected], status: bulkStatus }) });
+    setSelected(new Set()); setBulkStatus(''); fetchLeads(); fetchStats();
+  }
   async function handleExport() {
     setExporting(true);
     try {
-      const res = await fetch('/api/leads/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ leadIds: leads.map(l => l.id) }) });
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `TexasGTM_Leads_${new Date().toISOString().split('T')[0]}.xlsx`; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) { alert('Export failed: ' + e.message); }
+      const r = await fetch('/api/leads/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const b = await r.blob(); const u = URL.createObjectURL(b);
+      const a = document.createElement('a'); a.href = u; a.download = `TexasGTM_Leads_${new Date().toISOString().split('T')[0]}.xlsx`; a.click(); URL.revokeObjectURL(u);
+    } catch (e) { alert('Export failed'); }
     setExporting(false);
   }
-
-
-
-  function AddLeadModal() {
-    const [form, setForm] = useState({ company_name: '', domain: '', sector: 'manufacturing', priority: 'MEDIUM', city: '', region: '', company_size: '', pain_point: '', decision_maker_title: '', phone: '', email: '', contact_method: '', notes: '' });
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState('');
-
-    async function handleSubmit(e) {
-      e.preventDefault(); setSaving(true); setError('');
-      const res = await fetch('/api/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-      const data = await res.json();
-      if (res.ok) { setShowAddModal(false); fetchLeads(); fetchStats(); }
-      else setError(data.error || 'Failed');
-      setSaving(false);
-    }
-
-    return (
-      <div className="leads-modal-overlay" onClick={() => setShowAddModal(false)}>
-        <div className="leads-modal" onClick={e => e.stopPropagation()}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Add New Lead</h3>
-            <button onClick={() => setShowAddModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
-          </div>
-          {error && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '8px 12px', borderRadius: 8, fontSize: '0.78rem', marginBottom: 12 }}>{error}</div>}
-          <form onSubmit={handleSubmit}>
-            <div className="leads-form-grid">
-              <div className="leads-form-field"><label>Company Name *</label><input required value={form.company_name} onChange={e => setForm({ ...form, company_name: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Domain</label><input placeholder="e.g. ozon.ru" value={form.domain} onChange={e => setForm({ ...form, domain: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Sector</label>
-                <select value={form.sector} onChange={e => setForm({ ...form, sector: e.target.value })}>
-                  {Object.entries(SECTOR_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </div>
-              <div className="leads-form-field"><label>Priority</label>
-                <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
-                  {Object.entries(PRIORITY_CONFIG).map(([v, c]) => <option key={v} value={v}>{c.label}</option>)}
-                </select>
-              </div>
-              <div className="leads-form-field"><label>City</label><input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Region</label><input value={form.region} onChange={e => setForm({ ...form, region: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Company Size</label><input placeholder="e.g. 10,000+" value={form.company_size} onChange={e => setForm({ ...form, company_size: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Decision Maker</label><input value={form.decision_maker_title} onChange={e => setForm({ ...form, decision_maker_title: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Phone</label><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
-              <div className="leads-form-field"><label>Email</label><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
-              <div className="leads-form-field" style={{ gridColumn: '1 / -1' }}><label>Why They Need Workers</label><textarea rows={2} value={form.pain_point} onChange={e => setForm({ ...form, pain_point: e.target.value })} /></div>
-              <div className="leads-form-field" style={{ gridColumn: '1 / -1' }}><label>Notes</label><textarea rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
-              <button type="button" onClick={() => setShowAddModal(false)} className="btn btn-ghost">Cancel</button>
-              <button type="submit" disabled={saving} className="btn btn-primary">{saving ? 'Saving…' : 'Add Lead'}</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
+  function handleBulkLookup() {
+    const ids = bulkLookupText.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
+    if (ids.length) { setFilters(f => ({ ...f, search: ids.join(' ') })); setShowBulkLookup(false); }
   }
+  function toggleSelect(id) { setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function toggleSelectAll() { if (selected.size === leads.length) setSelected(new Set()); else setSelected(new Set(leads.map(l => l.id))); }
 
-  if (authLoading || !user || !isAdmin) return <div className="page-loading">Loading...</div>;
+  if (authLoading || !user) return <div className="page-loading">Loading...</div>;
 
   return (
     <div className="page-content">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>Lead Management</h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>B2B targets — Lead scraping & management</p>
+          <h1 className="page-title" style={{ marginBottom:2, fontSize:'1.3rem' }}>Lead Management</h1>
+          <p style={{ fontSize:'0.75rem', color:'var(--text-muted)' }}>{total} total leads • Page {page}/{totalPages}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => setShowAddModal(true)} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <MI name="add" size={16} /> Add Lead
-          </button>
-          <button onClick={handleExport} disabled={exporting || !leads.length} className="btn btn-success" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <MI name="download" size={16} /> {exporting ? 'Exporting…' : `Export ${leads.length}`}
-          </button>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          <button onClick={() => setShowBulkLookup(!showBulkLookup)} className="btn btn-ghost" style={{ fontSize:'0.75rem' }}><MI name="search" size={14}/> Bulk Lookup</button>
+          <button onClick={() => setShowAddModal(true)} className="btn btn-primary" style={{ fontSize:'0.75rem' }}><MI name="add" size={14}/> Add Lead</button>
+          <button onClick={handleExport} disabled={exporting} className="btn btn-success" style={{ fontSize:'0.75rem' }}><MI name="download" size={14}/> Export</button>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats Row */}
       {stats && (
-        <div className="leads-stats-grid">
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))', gap:8, marginBottom:16 }}>
           {[
-            { label: 'Total Leads', value: stats.total, color: '#378ADD', icon: 'groups' },
-            { label: 'HOT (act now)', value: stats.hot, color: '#D85A30', icon: 'local_fire_department' },
-            { label: 'HIGH priority', value: stats.high, color: '#1A7A4A', icon: 'bolt' },
-            { label: 'Active pipeline', value: stats.active, color: '#7F77DD', icon: 'trending_up' },
-            { label: 'Contracts signed', value: stats.signed, color: '#1D9E75', icon: 'verified' },
-            { label: 'Partners', value: stats.partner, color: '#EF9F27', icon: 'handshake' },
-          ].map(c => (
-            <div key={c.label} className="leads-stat-card">
-              <MI name={c.icon} size={22} />
-              <div className="leads-stat-value" style={{ color: c.color }}>{c.value}</div>
-              <div className="leads-stat-label">{c.label}</div>
+            { l:'Total', v:stats.total, c:'#3b82f6', i:'groups' },
+            { l:'HOT', v:stats.hot, c:'#ef4444', i:'local_fire_department' },
+            { l:'HIGH', v:stats.high, c:'#22c55e', i:'bolt' },
+            { l:'Active', v:stats.active, c:'#8b5cf6', i:'trending_up' },
+            { l:'Signed', v:stats.signed, c:'#10b981', i:'verified' },
+            { l:'Partners', v:stats.partner, c:'#f59e0b', i:'handshake' },
+          ].map(s => (
+            <div key={s.l} style={{ background:'#fff', border:'1px solid var(--border)', borderRadius:10, padding:'10px 14px', textAlign:'center' }}>
+              <MI name={s.i} size={18}/><div style={{ fontSize:'1.3rem', fontWeight:800, color:s.c, marginTop:2 }}>{s.v}</div>
+              <div style={{ fontSize:'0.65rem', color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.5px' }}>{s.l}</div>
             </div>
           ))}
         </div>
       )}
 
-
+      {/* Bulk Lookup Panel */}
+      {showBulkLookup && (
+        <div style={{ background:'#f8fafc', border:'1px solid var(--border)', borderRadius:10, padding:14, marginBottom:14 }}>
+          <div style={{ fontSize:'0.8rem', fontWeight:600, marginBottom:8 }}>Bulk Lookup — paste IDs or company names</div>
+          <textarea rows={3} value={bulkLookupText} onChange={e => setBulkLookupText(e.target.value)} placeholder="Paste IDs or names separated by comma, space, or newline..." style={{ width:'100%', padding:8, borderRadius:8, border:'1px solid var(--border)', fontSize:'0.78rem', resize:'vertical' }}/>
+          <div style={{ display:'flex', gap:6, marginTop:8 }}>
+            <button onClick={handleBulkLookup} className="btn btn-primary" style={{ fontSize:'0.72rem' }}>Search</button>
+            <button onClick={() => { setShowBulkLookup(false); setBulkLookupText(''); setFilters(f => ({...f, search:''})); }} className="btn btn-ghost" style={{ fontSize:'0.72rem' }}>Clear</button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
-      <div className="leads-filter-bar">
-        <input type="text" placeholder="Search company, city, email…" value={filters.search}
-          onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} className="leads-input" style={{ flex: 1, minWidth: 180 }} />
-        <select value={filters.priority} onChange={e => setFilters(f => ({ ...f, priority: e.target.value }))} className="leads-select">
-          <option value="">All priorities</option>
-          {Object.entries(PRIORITY_CONFIG).map(([v, c]) => <option key={v} value={v}>{c.label}</option>)}
+      <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:14, alignItems:'center' }}>
+        <input type="text" placeholder="Search company, city, email, ID…" value={filters.search}
+          onChange={e => setFilters(f => ({...f, search: e.target.value}))} style={{ flex:1, minWidth:180, padding:'7px 12px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.78rem' }}/>
+        <select value={filters.priority} onChange={e => setFilters(f => ({...f, priority: e.target.value}))} style={{ padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.75rem' }}>
+          <option value="">All priorities</option>{Object.entries(PC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
         </select>
-        <select value={filters.sector} onChange={e => setFilters(f => ({ ...f, sector: e.target.value }))} className="leads-select">
-          <option value="">All sectors</option>
-          {Object.entries(SECTOR_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        <select value={filters.sector} onChange={e => setFilters(f => ({...f, sector: e.target.value}))} style={{ padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.75rem' }}>
+          <option value="">All sectors</option>{Object.entries(SL).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
         </select>
-        <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))} className="leads-select">
-          <option value="">All statuses</option>
-          {Object.entries(STATUS_CONFIG).map(([v, c]) => <option key={v} value={v}>{c.label}</option>)}
+        <select value={filters.status} onChange={e => setFilters(f => ({...f, status: e.target.value}))} style={{ padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.75rem' }}>
+          <option value="">All statuses</option>{Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
         </select>
-        {(filters.search || filters.priority || filters.sector || filters.status) && (
-          <button onClick={() => setFilters({ sector: '', priority: '', status: '', search: '' })} style={{ fontSize: '0.72rem', color: '#9ca3af', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', background: '#fff' }}>Clear</button>
+        <select value={perPage} onChange={e => setPerPage(Number(e.target.value))} style={{ padding:'7px 10px', borderRadius:8, border:'1px solid var(--border)', fontSize:'0.75rem', width:80 }}>
+          {[25,50,100,200].map(n => <option key={n} value={n}>{n}/pg</option>)}
+        </select>
+        {(filters.search||filters.priority||filters.sector||filters.status) && (
+          <button onClick={() => setFilters({sector:'',priority:'',status:'',search:''})} style={{ fontSize:'0.7rem', color:'#9ca3af', border:'1px solid var(--border)', borderRadius:8, padding:'7px 12px', cursor:'pointer', background:'#fff' }}>✕ Clear</button>
         )}
       </div>
 
-      {/* Table */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Loading leads…</div>
-      ) : leads.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
-          <MI name="groups" size={40} /><p style={{ marginTop: 8, fontSize: '0.95rem' }}>No leads found</p>
-          <p style={{ fontSize: '0.78rem', marginTop: 4 }}>Add leads manually or run a scrape job</p>
+      {/* Bulk Actions Bar */}
+      {selected.size > 0 && (
+        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', background:'#eff6ff', borderRadius:10, marginBottom:12, border:'1px solid #bfdbfe' }}>
+          <span style={{ fontSize:'0.78rem', fontWeight:600, color:'#1e40af' }}>{selected.size} selected</span>
+          <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid #93c5fd', fontSize:'0.75rem' }}>
+            <option value="">Set status…</option>{Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
+          </select>
+          <button onClick={handleBulkStatus} disabled={!bulkStatus} className="btn btn-primary" style={{ fontSize:'0.72rem', padding:'5px 14px' }}>Apply</button>
+          <button onClick={() => setSelected(new Set())} style={{ fontSize:'0.72rem', color:'#6b7280', background:'none', border:'none', cursor:'pointer' }}>Deselect all</button>
         </div>
+      )}
+
+      {/* Table */}
+      {loading ? <div style={{ textAlign:'center', padding:40, color:'var(--text-muted)' }}>Loading…</div> : leads.length === 0 ? (
+        <div style={{ textAlign:'center', padding:60, color:'var(--text-muted)' }}><MI name="groups" size={40}/><p style={{ marginTop:8 }}>No leads found</p></div>
       ) : (
-        <div className="leads-table-wrap">
-          <table className="leads-table">
+        <div style={{ overflowX:'auto', borderRadius:10, border:'1px solid var(--border)' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.78rem' }}>
             <thead>
-              <tr>
-                <th style={{ width: 40, textAlign: 'center' }}>#</th>
-                <th style={{ minWidth: 200 }}>Company</th>
-                <th>Sector</th>
-                <th>City</th>
-                <th style={{ minWidth: 180 }}>Why They Need Us</th>
-                <th>Contact</th>
-                <th style={{ width: 100, textAlign: 'center' }}>Priority</th>
-                <th style={{ minWidth: 170 }}>Status</th>
-                <th>Phone</th>
-                <th>Email</th>
-                <th style={{ width: 60 }}></th>
+              <tr style={{ background:'#f8fafc', borderBottom:'2px solid var(--border)' }}>
+                <th style={{ padding:'10px 8px', width:36, textAlign:'center' }}>
+                  <input type="checkbox" checked={selected.size === leads.length && leads.length > 0} onChange={toggleSelectAll} style={{ cursor:'pointer' }}/>
+                </th>
+                <th style={TH}>ID</th><th style={{...TH, minWidth:180}}>Company</th><th style={TH}>Sector</th>
+                <th style={TH}>City</th><th style={{...TH, minWidth:130}}>Priority</th><th style={{...TH, minWidth:160}}>Status</th>
+                <th style={TH}>Contact</th><th style={TH}>Phone</th><th style={{width:50}}></th>
               </tr>
             </thead>
             <tbody>
-              {leads.map((lead, i) => {
-                const sc = STATUS_CONFIG[lead.status] || STATUS_CONFIG.not_contacted;
-                const pc = PRIORITY_CONFIG[lead.priority] || PRIORITY_CONFIG.MEDIUM;
+              {leads.map((l, i) => {
+                const sc = SC[l.status] || SC.not_contacted;
+                const pc = PC[l.priority] || PC.MEDIUM;
+                const isSel = selected.has(l.id);
                 return (
-                  <tr key={lead.id} style={{ backgroundColor: sc.row }} className="leads-row">
-                    <td style={{ textAlign: 'center', color: '#9ca3af', fontFamily: 'monospace', fontSize: '0.72rem' }}>{i + 1}</td>
-                    <td>
-                      <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.82rem', cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === lead.id ? null : lead.id)}>{lead.company_name}</div>
-                      {lead.domain && <div style={{ fontSize: '0.68rem', color: '#9ca3af', marginTop: 2 }}>{lead.domain}</div>}
-                      {expandedId === lead.id && (
-                        <div className="leads-expanded">
-                          {lead.pain_point && <div><strong>Pain point:</strong> {lead.pain_point}</div>}
-                          {lead.find_instructions && <div><strong>Where to find:</strong> {lead.find_instructions}</div>}
-                          {lead.notes && <div><strong>Notes:</strong> {lead.notes}</div>}
-                          {lead.source_url && <div><strong>Source:</strong> <a href={lead.source_url} target="_blank" rel="noopener noreferrer">{lead.source_url}</a></div>}
-                          {lead.last_contacted_at && <div><strong>Last contacted:</strong> {new Date(lead.last_contacted_at).toLocaleDateString()}</div>}
-                          <div style={{ marginTop: 6 }}><strong>Scraped from:</strong> {lead.scraped_from || 'manual'}</div>
+                  <tr key={l.id} style={{ backgroundColor: isSel ? '#eff6ff' : sc.row, borderBottom:'1px solid #f1f5f9', transition:'background .15s' }}>
+                    <td style={{ padding:'8px', textAlign:'center' }}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleSelect(l.id)} style={{ cursor:'pointer' }}/>
+                    </td>
+                    <td style={{ padding:'8px', fontFamily:'monospace', fontSize:'0.68rem', color:'#9ca3af' }}>{l.id}</td>
+                    <td style={{ padding:'8px 10px' }}>
+                      <div style={{ fontWeight:600, fontSize:'0.8rem', cursor:'pointer', color:'var(--text)' }} onClick={() => setExpandedId(expandedId===l.id?null:l.id)}>{l.company_name}</div>
+                      {l.domain && <div style={{ fontSize:'0.65rem', color:'#9ca3af', marginTop:1 }}>{l.domain}</div>}
+                      {expandedId===l.id && (
+                        <div style={{ marginTop:8, padding:'8px 10px', background:'#f8fafc', borderRadius:8, fontSize:'0.72rem', lineHeight:1.6, color:'#4b5563', border:'1px solid #e5e7eb' }}>
+                          {l.pain_point && <div><strong>Why:</strong> {l.pain_point}</div>}
+                          {l.find_instructions && <div><strong>Find:</strong> {l.find_instructions}</div>}
+                          {l.notes && <div><strong>Notes:</strong> {l.notes}</div>}
+                          {l.email && <div><strong>Email:</strong> <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a></div>}
+                          {l.company_size && <div><strong>Size:</strong> {l.company_size}</div>}
+                          {l.decision_maker_title && <div><strong>Decision maker:</strong> {l.decision_maker_title}</div>}
                         </div>
                       )}
                     </td>
-                    <td style={{ fontSize: '0.72rem', color: '#6b7280' }}>{SECTOR_LABELS[lead.sector] || lead.sector}</td>
-                    <td style={{ fontSize: '0.72rem', color: '#6b7280' }}>{[lead.city, lead.region].filter(Boolean).join(', ')}</td>
-                    <td><p style={{ fontSize: '0.72rem', color: '#6b7280', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{lead.pain_point}</p></td>
-                    <td style={{ fontSize: '0.72rem', color: '#6b7280' }}>
-                      {lead.contact_method}
-                      {lead.decision_maker_title && <div style={{ color: '#9ca3af', marginTop: 2 }}>{lead.decision_maker_title}</div>}
+                    <td style={TD}>{SL[l.sector]||l.sector}</td>
+                    <td style={TD}>{[l.city,l.region].filter(Boolean).join(', ')}</td>
+                    <td style={{...TD, textAlign:'center'}}>
+                      <span style={{ padding:'3px 10px', borderRadius:20, fontSize:'0.68rem', fontWeight:700, background:pc.bg, color:pc.text, whiteSpace:'nowrap' }}>{pc.label}</span>
                     </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span className="leads-priority-badge" style={{ background: pc.bg, color: pc.text }}>{pc.label}</span>
+                    <td style={TD}>
+                      <select value={l.status} onChange={e => handleStatusChange(l.id, e.target.value)}
+                        style={{ padding:'4px 8px', borderRadius:8, border:'1px solid #e5e7eb', fontSize:'0.72rem', fontWeight:600, background:sc.bg, color:sc.text, cursor:'pointer', width:'100%' }}>
+                        {Object.entries(SC).map(([v,c]) => <option key={v} value={v}>{c.label}</option>)}
+                      </select>
                     </td>
-                    <td>
-                      <div style={{ position: 'relative' }}>
-                        <select value={lead.status} onChange={e => handleStatusChange(lead.id, e.target.value)}
-                          className="leads-status-select" style={{ background: sc.bg, color: sc.text }}>
-                          {Object.entries(STATUS_CONFIG).map(([v, c]) => <option key={v} value={v}>{c.label}</option>)}
-                        </select>
-                        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', width: 7, height: 7, borderRadius: '50%', background: sc.dot, pointerEvents: 'none' }} />
-                      </div>
+                    <td style={{...TD, fontSize:'0.68rem'}}>
+                      {l.contact_method && <div>{l.contact_method}</div>}
+                      {l.decision_maker_title && <div style={{color:'#9ca3af', marginTop:1}}>{l.decision_maker_title}</div>}
                     </td>
-                    <td style={{ fontSize: '0.72rem', fontFamily: 'monospace', color: '#6b7280' }}>{lead.phone}</td>
-                    <td style={{ fontSize: '0.72rem' }}>{lead.email && <a href={`mailto:${lead.email}`} style={{ color: '#2563eb' }}>{lead.email}</a>}</td>
-                    <td>
-                      <button onClick={() => handleDelete(lead.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: '0.7rem', padding: 4 }}>
-                        <MI name="delete" size={16} />
-                      </button>
+                    <td style={{...TD, fontFamily:'monospace', fontSize:'0.68rem'}}>{l.phone}</td>
+                    <td style={{padding:'8px 4px', textAlign:'center'}}>
+                      <button onClick={() => handleDelete(l.id)} title="Delete" style={{ background:'none', border:'none', cursor:'pointer', color:'#dc2626' }}><MI name="delete" size={15}/></button>
                     </td>
                   </tr>
                 );
@@ -294,7 +249,71 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {showAddModal && <AddLeadModal />}
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:6, marginTop:16 }}>
+          <button onClick={() => setPage(1)} disabled={page===1} style={PB}>«</button>
+          <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1} style={PB}>‹</button>
+          {Array.from({length: Math.min(7, totalPages)}, (_, i) => {
+            let p; const half = 3;
+            if (totalPages <= 7) p = i+1;
+            else if (page <= half+1) p = i+1;
+            else if (page >= totalPages-half) p = totalPages-6+i;
+            else p = page-half+i;
+            return <button key={p} onClick={() => setPage(p)} style={{...PB, background: p===page ? 'var(--primary)' : '#fff', color: p===page ? '#fff' : '#374151', fontWeight: p===page ? 700 : 400}}>{p}</button>;
+          })}
+          <button onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages} style={PB}>›</button>
+          <button onClick={() => setPage(totalPages)} disabled={page===totalPages} style={PB}>»</button>
+        </div>
+      )}
+
+      {showAddModal && <AddModal onClose={() => setShowAddModal(false)} onDone={() => { fetchLeads(); fetchStats(); setShowAddModal(false); }} />}
+    </div>
+  );
+}
+
+const TH = { padding:'10px 8px', textAlign:'left', fontSize:'0.7rem', fontWeight:700, color:'#6b7280', textTransform:'uppercase', letterSpacing:'0.5px', whiteSpace:'nowrap' };
+const TD = { padding:'8px', fontSize:'0.75rem', color:'#4b5563' };
+const PB = { width:32, height:32, borderRadius:8, border:'1px solid var(--border)', background:'#fff', cursor:'pointer', fontSize:'0.78rem', display:'flex', alignItems:'center', justifyContent:'center' };
+
+function AddModal({ onClose, onDone }) {
+  const [f, setF] = useState({ company_name:'', domain:'', sector:'manufacturing', priority:'MEDIUM', city:'', region:'', company_size:'', pain_point:'', decision_maker_title:'', phone:'', email:'', contact_method:'', notes:'' });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  async function save(e) {
+    e.preventDefault(); setSaving(true); setErr('');
+    const r = await fetch('/api/leads', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(f) });
+    if (r.ok) onDone(); else { const d = await r.json(); setErr(d.error||'Failed'); }
+    setSaving(false);
+  }
+  const SL2 = { construction:'Construction', manufacturing:'Manufacturing', warehouse_logistics:'Warehouse/Logistics', food_processing:'Food Processing', metallurgy:'Metallurgy', mining:'Mining', chemicals:'Chemicals', automotive:'Automotive', hospitality:'Hospitality', retail:'Retail', agency_partner:'Agency Partner', industry_association:'Industry Association', other:'Other' };
+  return (
+    <div className="leads-modal-overlay" onClick={onClose}>
+      <div className="leads-modal" onClick={e => e.stopPropagation()}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+          <h3 style={{ fontSize:'1rem', fontWeight:700 }}>Add New Lead</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:'1.2rem', cursor:'pointer', color:'#94a3b8' }}>✕</button>
+        </div>
+        {err && <div style={{ background:'#fef2f2', color:'#dc2626', padding:'8px 12px', borderRadius:8, fontSize:'0.78rem', marginBottom:12 }}>{err}</div>}
+        <form onSubmit={save}>
+          <div className="leads-form-grid">
+            <div className="leads-form-field"><label>Company *</label><input required value={f.company_name} onChange={e => setF({...f, company_name:e.target.value})}/></div>
+            <div className="leads-form-field"><label>Domain</label><input value={f.domain} onChange={e => setF({...f, domain:e.target.value})}/></div>
+            <div className="leads-form-field"><label>Sector</label><select value={f.sector} onChange={e => setF({...f, sector:e.target.value})}>{Object.entries(SL2).map(([v,l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div className="leads-form-field"><label>Priority</label><select value={f.priority} onChange={e => setF({...f, priority:e.target.value})}><option value="HOT">HOT</option><option value="HIGH">HIGH</option><option value="MEDIUM">MEDIUM</option><option value="PARTNER">PARTNER</option></select></div>
+            <div className="leads-form-field"><label>City</label><input value={f.city} onChange={e => setF({...f, city:e.target.value})}/></div>
+            <div className="leads-form-field"><label>Size</label><input value={f.company_size} onChange={e => setF({...f, company_size:e.target.value})}/></div>
+            <div className="leads-form-field"><label>Phone</label><input value={f.phone} onChange={e => setF({...f, phone:e.target.value})}/></div>
+            <div className="leads-form-field"><label>Email</label><input value={f.email} onChange={e => setF({...f, email:e.target.value})}/></div>
+            <div className="leads-form-field" style={{gridColumn:'1/-1'}}><label>Pain Point</label><textarea rows={2} value={f.pain_point} onChange={e => setF({...f, pain_point:e.target.value})}/></div>
+            <div className="leads-form-field" style={{gridColumn:'1/-1'}}><label>Notes</label><textarea rows={2} value={f.notes} onChange={e => setF({...f, notes:e.target.value})}/></div>
+          </div>
+          <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:16 }}>
+            <button type="button" onClick={onClose} className="btn btn-ghost">Cancel</button>
+            <button type="submit" disabled={saving} className="btn btn-primary">{saving ? 'Saving…' : 'Add Lead'}</button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
