@@ -13,7 +13,13 @@ if (fs.existsSync(envPath)) {
 }
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
-const mdPath = path.join(__dirname, '..', '..', 'Taha_Airwaves_Cold_Email_Templates_EN_RU_DE_AR.md');
+const candidates = [
+  process.argv[2],
+  path.join(__dirname, '..', 'Taha_Airwaves_Cold_Email_Templates_EN_RU_DE_AR.md'),
+  path.join(__dirname, '..', '..', 'Taha_Airwaves_Cold_Email_Templates_EN_RU_DE_AR.md'),
+].filter(Boolean);
+const mdPath = candidates.find(p => fs.existsSync(p));
+if (!mdPath) { console.error('MD file not found'); process.exit(1); }
 const md = fs.readFileSync(mdPath, 'utf8');
 
 // Parse templates from MD
