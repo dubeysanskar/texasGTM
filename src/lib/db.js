@@ -237,6 +237,63 @@ async function initSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_gtm_templates_platform ON gtm_templates(platform);
 
+    CREATE TABLE IF NOT EXISTS gtm_email_campaigns (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      status TEXT DEFAULT 'draft',
+      template_id INTEGER REFERENCES gtm_templates(id) ON DELETE SET NULL,
+      language TEXT DEFAULT 'en',
+      filters JSONB DEFAULT '{}',
+      llm_personalize BOOLEAN DEFAULT true,
+      daily_limit INTEGER DEFAULT 50,
+      send_window_start TEXT DEFAULT '09:00',
+      send_window_end TEXT DEFAULT '18:00',
+      total_leads INTEGER DEFAULT 0,
+      total_sent INTEGER DEFAULT 0,
+      total_opened INTEGER DEFAULT 0,
+      total_replied INTEGER DEFAULT 0,
+      total_bounced INTEGER DEFAULT 0,
+      total_unsubscribed INTEGER DEFAULT 0,
+      created_by INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS gtm_email_sends (
+      id SERIAL PRIMARY KEY,
+      campaign_id INTEGER REFERENCES gtm_email_campaigns(id) ON DELETE SET NULL,
+      lead_id INTEGER REFERENCES gtm_leads(id) ON DELETE SET NULL,
+      template_id INTEGER REFERENCES gtm_templates(id) ON DELETE SET NULL,
+      touch_number INTEGER DEFAULT 1,
+      to_email TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      body_html TEXT NOT NULL,
+      personalized_opener TEXT DEFAULT '',
+      personalized_value_prop TEXT DEFAULT '',
+      status TEXT DEFAULT 'queued',
+      error_message TEXT,
+      message_id TEXT,
+      opened_at TIMESTAMP,
+      replied_at TIMESTAMP,
+      bounced_at TIMESTAMP,
+      sent_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gtm_email_sends_campaign ON gtm_email_sends(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_gtm_email_sends_lead ON gtm_email_sends(lead_id);
+    CREATE INDEX IF NOT EXISTS idx_gtm_email_sends_status ON gtm_email_sends(status);
+
+    CREATE TABLE IF NOT EXISTS gtm_email_unsubscribes (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      lead_id INTEGER,
+      reason TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gtm_email_unsub ON gtm_email_unsubscribes(email);
+
     CREATE INDEX IF NOT EXISTS idx_gtm_msgs_sender ON gtm_messages(sender_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_msgs_receiver ON gtm_messages(receiver_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_task_comments ON gtm_task_comments(task_id);

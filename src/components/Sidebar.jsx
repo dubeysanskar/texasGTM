@@ -15,6 +15,7 @@ export default function Sidebar() {
     { href: '/leads', label: 'Lead Management', icon: 'leaderboard', show: isManager },
     { href: '/lead-scraper', label: 'Lead Scraper', icon: 'travel_explore', show: isAdmin },
     { href: '/templates', label: 'Templates', icon: 'description', show: isAdmin },
+    { href: '/auto-email', label: 'Auto Email', icon: 'forward_to_inbox', show: isAdmin || user?.role === 'marketing' },
     { href: '/team', label: 'Team', icon: 'group', show: isManager },
     { href: '/marketing', label: 'Marketing', icon: 'campaign', show: isAdmin || user?.role === 'marketing' },
     { href: '/shared-docs', label: 'Documents', icon: 'folder_shared', show: isStaff },
