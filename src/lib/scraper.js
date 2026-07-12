@@ -782,3 +782,103 @@ async function analyzeEmailQuality(email, companyDomain) {
 
   return { status: 'valid', reason: 'Valid email with working mail server', email, domain_match };
 }
+
+// ─── 8. SMTP VERIFICATION (Does the mailbox actually exist?) ─
+const net = require('net');
+
+/**
+ * Verifies if a specific email address actually exists on the mail server.
+ * Connects via SMTP (port 25) and uses the RCPT TO command to check.
+ * 
+ * Returns: { exists: boolean|'unknown', reason: string, code: number }
+ */
+async function verifyEmailExistsSMTP(email) {
+  if (!email || !email.includes('@')) return { exists: false, reason: 'Invalid email', code: 0 };
+
+  const emailDomain = email.split('@')[1];
+
+  // First get MX records
+  let mxHost;
+  try {
+    const records = await resolveMx(emailDomain);
+    if (!records || records.length === 0) return { exists: false, reason: `No mail server for ${emailDomain}`, code: 0 };
+    records.sort((a, b) => a.priority - b.priority);
+    mxHost = records[0].exchange;
+  } catch {
+    return { exists: false, reason: `DNS lookup failed for ${emailDomain}`, code: 0 };
+  }
+
+  return new Promise((resolve) => {
+    let step = 0;
+    let buffer = '';
+    let resolved = false;
+
+    const done = (result) => {
+      if (resolved) return;
+      resolved = true;
+      try { socket.end(); } catch {}
+      resolve(result);
+    };
+
+    const socket = net.createConnection({ port: 25, host: mxHost, timeout: 10000 });
+
+    socket.setTimeout(10000);
+
+    socket.on('data', (data) => {
+      buffer += data.toString();
+
+      // Wait for complete response (ends with \r\n)
+      if (!buffer.includes('\r\n') && !buffer.includes('\n')) return;
+
+      const lines = buffer.trim();
+      buffer = '';
+
+      if (step === 0) {
+        // Server greeting
+        if (/^220/.test(lines)) {
+          socket.write('EHLO tahaairwaves.com\r\n');
+          step = 1;
+        } else {
+          done({ exists: 'unknown', reason: 'Server rejected connection', code: 0 });
+        }
+      } else if (step === 1) {
+        // EHLO response
+        if (/250/.test(lines)) {
+          socket.write(`MAIL FROM:<verify@tahaairwaves.com>\r\n`);
+          step = 2;
+        } else {
+          done({ exists: 'unknown', reason: 'EHLO rejected', code: 0 });
+        }
+      } else if (step === 2) {
+        // MAIL FROM response
+        if (/250/.test(lines)) {
+          socket.write(`RCPT TO:<${email}>\r\n`);
+          step = 3;
+        } else {
+          done({ exists: 'unknown', reason: 'MAIL FROM rejected', code: 0 });
+        }
+      } else if (step === 3) {
+        // RCPT TO response — THIS is the verification result
+        socket.write('QUIT\r\n');
+        const code = parseInt(lines.substring(0, 3)) || 0;
+
+        if (code === 250 || code === 251) {
+          done({ exists: true, reason: 'Mailbox exists (server accepted)', code });
+        } else if (code === 550 || code === 551 || code === 553 || code === 552) {
+          done({ exists: false, reason: 'Mailbox does NOT exist (server rejected)', code });
+        } else if (code === 450 || code === 451 || code === 452) {
+          done({ exists: 'unknown', reason: 'Server temporarily unavailable', code });
+        } else if (code === 252) {
+          done({ exists: 'unknown', reason: 'Server cannot verify (catch-all likely)', code });
+        } else {
+          done({ exists: 'unknown', reason: `Server response: ${code} ${lines.slice(0, 60)}`, code });
+        }
+      }
+    });
+
+    socket.on('timeout', () => done({ exists: 'unknown', reason: 'Connection timed out (port 25 blocked?)', code: 0 }));
+    socket.on('error', (err) => done({ exists: 'unknown', reason: `Connection error: ${err.message}`, code: 0 }));
+  });
+}
+
+module.exports.verifyEmailExistsSMTP = verifyEmailExistsSMTP;

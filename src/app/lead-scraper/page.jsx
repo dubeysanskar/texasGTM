@@ -83,10 +83,10 @@ export default function LeadScraperPage() {
     setEnriching(false);
   }
 
-  async function handleDeepVerify() {
+  async function handleDeepVerify(smtpCheck = false) {
     setDeepVerifying(true); setDeepVerifyResult(null);
     try {
-      const res = await fetch('/api/leads/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxLeads: 200 }) });
+      const res = await fetch('/api/leads/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxLeads: 200, smtpCheck }) });
       if (res.ok) setDeepVerifyResult(await res.json());
     } catch {}
     setDeepVerifying(false);
@@ -257,16 +257,19 @@ export default function LeadScraperPage() {
             )}
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button onClick={handleDeepVerify} disabled={deepVerifying} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#8B5CF6', color: '#fff', border: 'none', borderRadius: 8 }}>
-                {deepVerifying ? <><span className="spinner-sm" /> <span style={{ marginLeft: 4 }}>Checking DNS & MX records — this takes ~30-60 seconds…</span></> : <><MI name="dns" size={14} /> Deep Verify (DNS + MX Records)</>}
+              <button onClick={() => handleDeepVerify(false)} disabled={deepVerifying} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#8B5CF6', color: '#fff', border: 'none', borderRadius: 8 }}>
+                {deepVerifying ? <><span className="spinner-sm" /> Verifying…</> : <><MI name="dns" size={14} /> Check MX Records</>}
+              </button>
+              <button onClick={() => handleDeepVerify(true)} disabled={deepVerifying} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8 }}>
+                {deepVerifying ? <><span className="spinner-sm" /> Connecting to mail servers…</> : <><MI name="mark_email_read" size={14} /> Verify Mailboxes Exist (SMTP)</>}
               </button>
               {verifyStats.bad_total > 0 && (
-                <button onClick={handleEnrichBadOnly} disabled={enriching} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8 }}>
-                  {enriching ? <><span className="spinner-sm" /> Fixing…</> : <><MI name="build" size={14} /> Fix {verifyStats.bad_total} Bad Format Emails</>}
+                <button onClick={handleEnrichBadOnly} disabled={enriching} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8 }}>
+                  {enriching ? <><span className="spinner-sm" /> Fixing…</> : <><MI name="build" size={14} /> Fix {verifyStats.bad_total} Bad Format</>}
                 </button>
               )}
-              <button onClick={fetchVerifyStats} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: 'transparent', color: '#8B5CF6', border: '1px solid #8B5CF6', borderRadius: 8 }}>
-                <MI name="refresh" size={14} /> Re-scan
+              <button onClick={fetchVerifyStats} className="btn" style={{ padding: '8px 10px', fontSize: '0.78rem', background: 'transparent', color: '#8B5CF6', border: '1px solid #8B5CF6', borderRadius: 8 }}>
+                <MI name="refresh" size={14} />
               </button>
             </div>
           </>
@@ -292,14 +295,23 @@ export default function LeadScraperPage() {
         {/* Deep verify results */}
         {deepVerifyResult && !deepVerifying && (
           <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 10, background: '#faf5ff', border: '1px solid #e9d5ff' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.82rem', marginBottom: 8 }}>🔬 Deep Verification Results ({deepVerifyResult.total_checked} checked)</div>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.82rem', marginBottom: 8 }}>🔬 Verification Results ({deepVerifyResult.total_checked} emails checked)</div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
               <MiniStat label="✅ MX Valid" value={deepVerifyResult.valid} color="#166534" />
               <MiniStat label="❌ Bad Format" value={deepVerifyResult.invalid_format} color="#dc2626" />
               <MiniStat label="🚫 No Mail Server" value={deepVerifyResult.no_mx} color="#991b1b" />
               <MiniStat label="🗑️ Placeholder" value={deepVerifyResult.placeholder} color="#9333ea" />
               <MiniStat label="🔀 Wrong Domain" value={deepVerifyResult.domain_mismatch} color="#d97706" />
               <MiniStat label="🤔 Suspicious" value={deepVerifyResult.suspicious} color="#ea580c" />
+              {(deepVerifyResult.smtp_exists > 0 || deepVerifyResult.smtp_not_exists > 0) && (
+                <>
+                  <span style={{ borderLeft: '2px solid #e9d5ff', paddingLeft: 10, display: 'flex', gap: 10 }}>
+                    <MiniStat label="📬 Mailbox Exists" value={deepVerifyResult.smtp_exists} color="#166534" />
+                    <MiniStat label="📭 Mailbox NOT Exists" value={deepVerifyResult.smtp_not_exists} color="#dc2626" />
+                    <MiniStat label="❓ Unknown" value={deepVerifyResult.smtp_unknown} color="#6b7280" />
+                  </span>
+                </>
+              )}
             </div>
             {deepVerifyResult.details?.length > 0 && (
               <details style={{ fontSize: '0.72rem' }} open>
