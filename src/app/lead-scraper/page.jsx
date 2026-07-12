@@ -333,12 +333,44 @@ export default function LeadScraperPage() {
         ) : verifyStats ? (
           <>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-              <StatCard value={verifyStats.total} label="Total" color="#0369a1" bg="#f0f9ff" border="#bae6fd" />
-              <StatCard value={verifyStats.valid_format} label="Valid Format" color="#d97706" bg="#fffbeb" border="#fde68a" />
-              <StatCard value={verifyStats.invalid_format} label="Bad Format" color="#dc2626" bg="#fef2f2" border="#fecaca" />
-              <StatCard value={verifyStats.placeholder} label="Placeholder" color="#9333ea" bg="#faf5ff" border="#e9d5ff" />
-              <StatCard value={verifyStats.empty} label="Empty" color="#6b7280" bg="#f9fafb" border="#e5e7eb" />
+              <StatCard value={verifyStats.total} label="Total Leads" color="#0369a1" bg="#f0f9ff" border="#bae6fd" />
+              <StatCard value={verifyStats.personal || verifyStats.good_total || 0} label="✅ Real Contact" color="#166534" bg="#f0fdf4" border="#bbf7d0" />
+              <StatCard value={verifyStats.generic || 0} label="⚠️ Generic (info@/hr@)" color="#d97706" bg="#fffbeb" border="#fde68a" />
+              <StatCard value={verifyStats.invalid_format} label="❌ Broken Format" color="#dc2626" bg="#fef2f2" border="#fecaca" />
+              <StatCard value={verifyStats.empty} label="📭 Empty" color="#6b7280" bg="#f9fafb" border="#e5e7eb" />
             </div>
+
+            {verifyStats.generic > 0 && (
+              <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#fef3c7', border: '1px solid #f59e0b' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#92400e', marginBottom: 6 }}>
+                  ⚠️ {verifyStats.generic} leads have GENERIC emails — campaigns will NEVER get read
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#78350f', marginBottom: 6 }}>
+                  These go to company-wide inboxes nobody checks. You need personal emails (name@company.ru) to reach decision makers.
+                </div>
+                {verifyStats.generic_breakdown && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: '0.7rem' }}>
+                    {Object.entries(verifyStats.generic_breakdown).sort((a, b) => b[1] - a[1]).map(([prefix, count]) => (
+                      <span key={prefix} style={{ padding: '2px 8px', borderRadius: 12, background: '#fde68a', color: '#92400e', fontWeight: 600, fontFamily: 'monospace' }}>
+                        {prefix}@: {count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {verifyStats.bad_total > 0 && (
+              <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.78rem', color: '#991b1b' }}>
+                  🚨 Only {verifyStats.personal || verifyStats.good_total || 0}/{verifyStats.total} leads ready for outreach ({Math.round(((verifyStats.personal || verifyStats.good_total || 0) / verifyStats.total) * 100)}%)
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#991b1b', marginTop: 2 }}>
+                  {verifyStats.bad_total} leads will bounce or be ignored. Use Google Dorking or 2GIS to find real decision-maker emails.
+                </div>
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => handleDeepVerify(false)} disabled={deepVerifying} className="btn" style={{ padding: '7px 14px', fontSize: '0.75rem', background: '#8B5CF6', color: '#fff', border: 'none', borderRadius: 8 }}>
                 {deepVerifying ? 'Verifying…' : '🔍 Check MX Records'}
@@ -346,27 +378,29 @@ export default function LeadScraperPage() {
               <button onClick={() => handleDeepVerify(true)} disabled={deepVerifying} className="btn" style={{ padding: '7px 14px', fontSize: '0.75rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8 }}>
                 {deepVerifying ? 'Connecting…' : '📧 Verify Mailboxes (SMTP)'}
               </button>
-              {verifyStats.bad_total > 0 && <button onClick={handleEnrichBadOnly} disabled={enriching} className="btn" style={{ padding: '7px 14px', fontSize: '0.75rem', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8 }}>Fix {verifyStats.bad_total} Bad</button>}
+              <button onClick={fetchVerifyStats} className="btn" style={{ padding: '7px 10px', fontSize: '0.75rem', background: 'transparent', color: '#8B5CF6', border: '1px solid #8B5CF6', borderRadius: 8 }}>
+                <MI name="refresh" size={14} />
+              </button>
             </div>
           </>
         ) : null}
         {deepVerifyResult && !deepVerifying && (
           <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#faf5ff', border: '1px solid #e9d5ff', fontSize: '0.75rem' }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>🔬 Results ({deepVerifyResult.total_checked} checked)</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>🔬 Deep Results ({deepVerifyResult.total_checked} checked)</div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
-              <MiniStat label="✅ Valid" value={deepVerifyResult.valid} color="#166534" />
+              <MiniStat label="✅ Personal" value={deepVerifyResult.personal} color="#166534" />
+              <MiniStat label="⚠️ Generic" value={deepVerifyResult.generic} color="#d97706" />
               <MiniStat label="❌ Bad" value={deepVerifyResult.invalid_format} color="#dc2626" />
               <MiniStat label="🚫 No MX" value={deepVerifyResult.no_mx} color="#991b1b" />
-              <MiniStat label="🔀 Mismatch" value={deepVerifyResult.domain_mismatch} color="#d97706" />
               {deepVerifyResult.smtp_not_exists > 0 && <MiniStat label="📭 Not Exists" value={deepVerifyResult.smtp_not_exists} color="#dc2626" />}
               {deepVerifyResult.smtp_exists > 0 && <MiniStat label="📬 Exists" value={deepVerifyResult.smtp_exists} color="#166534" />}
             </div>
             {deepVerifyResult.details?.length > 0 && (
-              <details><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#6b21a8' }}>Show {deepVerifyResult.details.length} issues</summary>
+              <details open><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#6b21a8' }}>Show {deepVerifyResult.details.length} issues</summary>
                 <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 4 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.68rem' }}>
                     <thead><tr style={{ borderBottom: '2px solid #e9d5ff' }}><th style={{ textAlign: 'left', padding: 3 }}>ID</th><th style={{ textAlign: 'left', padding: 3 }}>Company</th><th style={{ textAlign: 'left', padding: 3 }}>Email</th><th style={{ textAlign: 'left', padding: 3 }}>Problem</th></tr></thead>
-                    <tbody>{deepVerifyResult.details.map(d => (<tr key={d.id} style={{ borderBottom: '1px solid #f3e8ff' }}><td style={{ padding: 3, color: '#9ca3af' }}>#{d.id}</td><td style={{ padding: 3 }}>{d.company?.slice(0, 24)}</td><td style={{ padding: 3, color: '#dc2626', fontFamily: 'monospace', fontSize: '0.66rem' }}>{d.email || '—'}</td><td style={{ padding: 3, color: '#7c3aed', fontSize: '0.66rem' }}>{d.reason}</td></tr>))}</tbody>
+                    <tbody>{deepVerifyResult.details.map(d => (<tr key={d.id} style={{ borderBottom: '1px solid #f3e8ff', background: d.status === 'generic' ? '#fffbeb' : 'transparent' }}><td style={{ padding: 3, color: '#9ca3af' }}>#{d.id}</td><td style={{ padding: 3 }}>{d.company?.slice(0, 24)}</td><td style={{ padding: 3, color: d.status === 'generic' ? '#d97706' : '#dc2626', fontFamily: 'monospace', fontSize: '0.66rem' }}>{d.email || '—'}</td><td style={{ padding: 3, color: '#7c3aed', fontSize: '0.66rem' }}>{d.reason}</td></tr>))}</tbody>
                   </table>
                 </div>
               </details>
@@ -374,6 +408,7 @@ export default function LeadScraperPage() {
           </div>
         )}
       </div>
+
 
       {/* ═══ ENRICHMENT PANEL ═══ */}
       <div className="card" style={{ marginBottom: 20 }}>
