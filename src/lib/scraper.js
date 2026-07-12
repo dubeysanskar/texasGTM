@@ -626,8 +626,11 @@ function buildDorkQuery(template, vars = {}) {
   for (const [key, val] of Object.entries(vars)) {
     q = q.replaceAll(`{${key}}`, val || '');
   }
-  // Clean up empty placeholders
-  q = q.replace(/"\s*"/g, '').replace(/\s{2,}/g, ' ').trim();
+  // Clean up empty quoted placeholders: only literally "" (adjacent quotes, no content)
+  q = q.replaceAll('""', '');
+  // Remove leftover {var} placeholders that weren't in vars
+  q = q.replace(/\{[a-z_]+\}/gi, '');
+  q = q.replace(/\s{2,}/g, ' ').trim();
   return q;
 }
 

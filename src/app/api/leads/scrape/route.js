@@ -106,7 +106,13 @@ export async function POST(request) {
     await query("UPDATE gtm_scrape_jobs SET status = 'completed', leads_found = $1, leads_added = $2, leads_skipped = $3, completed_at = NOW() WHERE id = $4",
       [leads.length, added, skipped, jobId]);
 
-    return NextResponse.json({ jobId, leads_found: leads.length, added, skipped });
+    const warnings = [];
+    if (source === 'hh.ru' && leads.length === 0) warnings.push('hh.ru returned 0 results — server IP may be blocked (403). Try 2GIS instead.');
+    if (source === 'web_search' && leads.length === 0) warnings.push('DuckDuckGo returned 0 results — server IP may be blocked. Try 2GIS instead.');
+    if (source === 'google_dork' && leads.length === 0) warnings.push('Google Dorking uses DuckDuckGo which may be blocked from this server. Try 2GIS.');
+    if (source === 'superjob' && leads.length === 0) warnings.push('SuperJob returned 0 results — check SUPERJOB_API_KEY.');
+
+    return NextResponse.json({ jobId, leads_found: leads.length, added, skipped, found: leads.length, warnings });
 
   } catch (err) {
     console.error('[scrape] job failed:', err);
@@ -200,7 +206,14 @@ async function scrapeHHRu(searchQuery, maxLeads = 100) {
       const res = await fetch(`https://api.hh.ru/vacancies?${params}`, {
         headers: { 'User-Agent': 'TahaAirwavesCRM/1.0 (info@tahaairwaves.com)' },
       });
-      if (!res.ok) { console.error(`[scrape] hh.ru area ${area} HTTP ${res.status}`); continue; }
+      if (!res.ok) {
+        if (res.status === 403) {
+          console.error(`[scrape] hh.ru BLOCKED (403) — server IP is rate-limited/banned by hh.ru`);
+          continue;
+        }
+        console.error(`[scrape] hh.ru area ${area} HTTP ${res.status}`);
+        continue;
+      }
       const data = await res.json();
       if (!data.items) continue;
 
