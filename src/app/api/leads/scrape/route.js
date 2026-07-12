@@ -86,8 +86,10 @@ export async function POST(request) {
 
     // Insert leads with dedup
     let added = 0, skipped = 0;
+    const GARBAGE_NAME = /^(captcha|работа\b|вакансии?\b|свежие|поиск|найти|резюме|error|404|403|access denied|page not found|verify|hh\.ru|superjob|indeed|avito|duckduckgo|google|yandex|untitled|home|index|главная)/i;
     for (const lead of leads) {
       if (!lead.company_name?.trim()) { skipped++; continue; }
+      if (GARBAGE_NAME.test(lead.company_name.trim()) || lead.company_name.length > 120 || lead.company_name.length < 2) { skipped++; continue; }
       const dedupKey = makeDedupKey(lead.company_name, lead.domain);
       const existing = await queryOne('SELECT id FROM gtm_leads WHERE dedup_key = $1', [dedupKey]);
       if (existing) { skipped++; continue; }

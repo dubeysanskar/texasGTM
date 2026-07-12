@@ -1,69 +1,69 @@
-// Test each scraping source directly to diagnose failures
-const scraper = require('./src/lib/scraper');
+// Clean garbage leads from the database
+const db = require('./src/lib/db');
 
-async function testAll() {
-  console.log('=== TESTING ALL SCRAPE SOURCES ===\n');
+// Patterns that indicate a garbage lead (not a real company)
+const GARBAGE_PATTERNS = [
+  /^captcha/i,
+  /^работа\b/i,    // "Работа..." = job listing title
+  /^вакансии?\b/i,  // "Вакансия..." = vacancy title
+  /^свежие/i,      // "Свежие вакансии" = fresh vacancies
+  /^поиск/i,       // "Поиск работы" = job search
+  /^найти/i,       // "Найти работу" = find job
+  /^резюме/i,      // resume
+  /^hh\.ru/i,
+  /^superjob/i,
+  /^indeed/i,
+  /^avito/i,
+  /^duckduckgo/i,
+  /^google/i,
+  /^yandex/i,
+  /^error/i,
+  /^404/i,
+  /^403/i,
+  /^access denied/i,
+  /^page not found/i,
+  /^verify/i,
+];
 
-  // 1. Test hh.ru API
-  console.log('--- 1. hh.ru API ---');
-  try {
-    const res = await fetch('https://api.hh.ru/vacancies?text=%D1%80%D0%B0%D0%B1%D0%BE%D1%87%D0%B8%D0%B9+%D0%BD%D0%B0+%D0%BF%D1%80%D0%BE%D0%B8%D0%B7%D0%B2%D0%BE%D0%B4%D1%81%D1%82%D0%B2%D0%BE&area=1&per_page=5', {
-      headers: { 'User-Agent': 'TahaAirwavesCRM/1.0 (info@tahaairwaves.com)' }
-    });
-    console.log('  Status:', res.status, res.statusText);
-    const data = await res.json();
-    console.log('  Found items:', data.items?.length || 0);
-    console.log('  Total available:', data.found || 0);
-    if (data.items?.[0]) console.log('  Sample employer:', data.items[0].employer?.name);
-    if (data.errors) console.log('  ERRORS:', JSON.stringify(data.errors));
-  } catch(e) { console.log('  ERROR:', e.message); }
+async function run() {
+  const leads = await db.queryAll('SELECT id, company_name, domain, email FROM gtm_leads ORDER BY id');
+  console.log(`Total leads: ${leads.length}\n`);
 
-  // 2. Test 2GIS API
-  console.log('\n--- 2. 2GIS API ---');
-  const apiKey = process.env.TWOGIS_API_KEY;
-  console.log('  API Key set:', !!apiKey, apiKey ? apiKey.substring(0, 8) + '...' : 'MISSING');
-  if (apiKey) {
-    try {
-      const { items } = await scraper.search2GIS('строительная компания Москва', apiKey);
-      console.log('  Found items:', items.length);
-      if (items[0]) console.log('  Sample:', items[0].org?.name || items[0].name);
-    } catch(e) { console.log('  ERROR:', e.message); }
+  const garbage = [];
+  for (const lead of leads) {
+    const name = (lead.company_name || '').trim();
+    const isGarbage = GARBAGE_PATTERNS.some(p => p.test(name)) || name.length < 2 || name.length > 150;
+    if (isGarbage) {
+      garbage.push(lead);
+    }
   }
 
-  // 3. Test DuckDuckGo (used by web_search and dorking)
-  console.log('\n--- 3. DuckDuckGo Search ---');
-  try {
-    const urls = await scraper.searchWebForCompanies('производственное предприятие москва контакты', 5);
-    console.log('  Found URLs:', urls.length);
-    urls.slice(0, 3).forEach(u => console.log('  -', u));
-  } catch(e) { console.log('  ERROR:', e.message); }
+  console.log(`Found ${garbage.length} garbage leads:`);
+  garbage.forEach(g => console.log(`  #${g.id}: "${g.company_name}" (${g.domain || 'no domain'})`));
 
-  // 4. Test Google Dorking
-  console.log('\n--- 4. Google Dorking ---');
-  try {
-    const leads = await scraper.googleDorkSearch('companies_with_email', { city: 'Москва', industry: 'строительная' }, '', 5);
-    console.log('  Found leads:', leads.length);
-    if (leads[0]) console.log('  Sample:', leads[0].company_name, leads[0].email);
-  } catch(e) { console.log('  ERROR:', e.message); }
+  if (garbage.length > 0) {
+    const ids = garbage.map(g => g.id);
+    // Delete them
+    for (const id of ids) {
+      await db.query('DELETE FROM gtm_leads WHERE id = $1', [id]);
+    }
+    console.log(`\n✅ Deleted ${ids.length} garbage leads`);
+  }
 
-  // 5. Test SuperJob
-  console.log('\n--- 5. SuperJob ---');
-  const sjKey = process.env.SUPERJOB_API_KEY;
-  console.log('  API Key set:', !!sjKey);
-  if (sjKey) {
-    try {
-      const res = await fetch('https://api.superjob.ru/2.0/vacancies/?keyword=рабочий&count=3', {
-        headers: { 'X-Api-App-Id': sjKey }
-      });
-      console.log('  Status:', res.status);
-      const data = await res.json();
-      console.log('  Found objects:', data.objects?.length || 0);
-    } catch(e) { console.log('  ERROR:', e.message); }
-  } else {
-    console.log('  SKIPPED - no API key');
+  // Also show leads with bad domains (contains /)
+  const badDomain = await db.queryAll("SELECT id, company_name, domain FROM gtm_leads WHERE domain LIKE '%/%' LIMIT 10");
+  if (badDomain.length > 0) {
+    console.log(`\n⚠️ ${badDomain.length} leads have bad domains (contain /):`);
+    badDomain.forEach(b => console.log(`  #${b.id}: domain="${b.domain}"`));
+    // Fix them by taking only the first part
+    for (const b of badDomain) {
+      const fixed = b.domain.split('/')[0].trim();
+      await db.query('UPDATE gtm_leads SET domain = $1 WHERE id = $2', [fixed, b.id]);
+    }
+    console.log(`Fixed ${badDomain.length} domains`);
   }
 
   process.exit(0);
 }
 
-testAll().catch(e => { console.error('FATAL:', e.message); process.exit(1); });
+run().catch(e => { console.error(e); process.exit(1); });
