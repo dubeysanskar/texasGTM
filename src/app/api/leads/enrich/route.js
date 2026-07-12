@@ -6,68 +6,77 @@ const { enrichLeadContacts } = require('@/lib/scraper');
 /**
  * POST /api/leads/enrich
  * 
- * Enriches existing leads using 4 fallback sources:
- *   1. Website crawling (cheerio) — scrape company website contact pages
- *   2. 2GIS API lookup — search by company name + city
- *   3. hh.ru employer lookup — find company on hh.ru, get website, then crawl
- *   4. Email pattern guessing — try info@, office@, hr@ patterns
- * 
  * Body: {
- *   mode: 'missing' | 'force_all' | 'selected',
- *   leadIds?: number[],
- *   maxLeads?: number
+ *   mode: 'missing' | 'force_all' | 'selected' | 'bad_only',
+ *   leadIds?: number[],       // for mode='selected'
+ *   maxLeads?: number,        // max leads to process
+ *   rangeFrom?: number,       // start lead ID (for range filtering)
+ *   rangeTo?: number,         // end lead ID (for range filtering)
  * }
- * 
- * mode 'missing' — only enrich leads with empty email/phone
- * mode 'force_all' — re-enrich ALL leads (overwrites existing wrong emails)
- * mode 'selected' — enrich specific lead IDs (with force overwrite)
  */
 export async function POST(request) {
   const user = getUserFromRequest(request);
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
-  const { mode = 'missing', leadIds, maxLeads = 200 } = await request.json();
+  const { mode = 'missing', leadIds, maxLeads = 200, rangeFrom, rangeTo } = await request.json();
   const apiKey2GIS = process.env.TWOGIS_API_KEY || null;
   const force = mode === 'force_all' || mode === 'selected';
 
-  // Get leads to enrich
   let leads = [];
+
   if (mode === 'selected' && leadIds?.length) {
+    // Specific lead IDs
     const placeholders = leadIds.map((_, i) => `$${i + 1}`).join(',');
     leads = await queryAll(`SELECT * FROM gtm_leads WHERE id IN (${placeholders})`, leadIds);
+
+  } else if (rangeFrom && rangeTo) {
+    // Range filter: leads between ID rangeFrom and rangeTo
+    if (mode === 'force_all') {
+      leads = await queryAll(
+        `SELECT * FROM gtm_leads WHERE id >= $1 AND id <= $2 ORDER BY id LIMIT $3`,
+        [rangeFrom, rangeTo, maxLeads]
+      );
+    } else {
+      leads = await queryAll(
+        `SELECT * FROM gtm_leads WHERE id >= $1 AND id <= $2 AND (email IS NULL OR email = '' OR phone IS NULL OR phone = '') ORDER BY id LIMIT $3`,
+        [rangeFrom, rangeTo, maxLeads]
+      );
+    }
+
   } else if (mode === 'force_all') {
-    // Re-enrich ALL leads — useful for fixing wrong emails
     leads = await queryAll(
-      `SELECT * FROM gtm_leads ORDER BY created_at DESC LIMIT $1`,
+      `SELECT * FROM gtm_leads ORDER BY id LIMIT $1`,
       [maxLeads]
     );
+
   } else {
-    // Only leads with missing email or phone
+    // Only missing
     leads = await queryAll(
-      `SELECT * FROM gtm_leads WHERE (email IS NULL OR email = '' OR phone IS NULL OR phone = '') ORDER BY created_at DESC LIMIT $1`,
+      `SELECT * FROM gtm_leads WHERE (email IS NULL OR email = '' OR phone IS NULL OR phone = '') ORDER BY id LIMIT $1`,
       [maxLeads]
     );
   }
 
   if (leads.length === 0) {
-    return NextResponse.json({ total: 0, enriched: 0, emails_found: 0, phones_found: 0, message: 'No leads to enrich' });
+    return NextResponse.json({ total: 0, enriched: 0, emails_found: 0, phones_found: 0, failed: 0, changes: [], message: 'No leads to enrich' });
   }
 
   // Create tracking job
+  const rangeLabel = rangeFrom && rangeTo ? ` (IDs ${rangeFrom}-${rangeTo})` : '';
   const job = await query(
     "INSERT INTO gtm_scrape_jobs (source, query, status, started_at, created_by) VALUES ($1, $2, 'running', NOW(), $3) RETURNING id",
-    ['enrichment', `${force ? 'Force re-enriching' : 'Enriching'} ${leads.length} leads`, user.id]
+    ['enrichment', `${force ? 'Force' : 'Missing'}: ${leads.length} leads${rangeLabel}`, user.id]
   );
   const jobId = job.rows[0].id;
 
   let enriched = 0, emailsFound = 0, phonesFound = 0, failed = 0;
+  const changes = []; // Track what changed for UI
 
   try {
     for (const lead of leads) {
       try {
         const result = await enrichLeadContacts(lead, apiKey2GIS, force);
 
-        // Check if anything new was found
         const hasNewEmail = result.email && result.email !== lead.email;
         const hasNewPhone = result.phone && result.phone !== lead.phone;
         const hasNewDomain = result.domain && result.domain !== lead.domain;
@@ -89,20 +98,32 @@ export async function POST(request) {
           params.push(lead.id);
           await query(`UPDATE gtm_leads SET ${updates.join(', ')} WHERE id = $${paramIdx}`, params);
           enriched++;
+
+          // Track change for UI (limit to 50 for response size)
+          if (changes.length < 50) {
+            changes.push({
+              id: lead.id,
+              company: lead.company_name,
+              old_email: lead.email || '(empty)',
+              new_email: hasNewEmail ? result.email : lead.email,
+              old_phone: lead.phone || '(empty)',
+              new_phone: hasNewPhone ? result.phone : lead.phone,
+              sources: [...new Set(result.source_used)],
+            });
+          }
         }
       } catch (e) {
         console.error(`[enrich] Lead #${lead.id} (${lead.company_name}) error:`, e.message);
         failed++;
       }
 
-      // Rate limit between leads
       await new Promise(r => setTimeout(r, 300));
     }
 
     await query("UPDATE gtm_scrape_jobs SET status = 'completed', leads_found = $1, leads_added = $2, leads_skipped = $3, completed_at = NOW() WHERE id = $4",
       [leads.length, enriched, failed, jobId]);
 
-    return NextResponse.json({ total: leads.length, enriched, emails_found: emailsFound, phones_found: phonesFound, failed });
+    return NextResponse.json({ total: leads.length, enriched, emails_found: emailsFound, phones_found: phonesFound, failed, changes });
 
   } catch (err) {
     console.error('[enrich] job failed:', err);
@@ -111,17 +132,19 @@ export async function POST(request) {
   }
 }
 
-/** GET /api/leads/enrich — returns enrichment statistics */
+/** GET /api/leads/enrich — enrichment statistics */
 export async function GET(request) {
   const user = getUserFromRequest(request);
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
+  const total = await queryOne("SELECT COUNT(*) as c FROM gtm_leads");
   const missingEmail = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE email IS NULL OR email = ''");
   const missingPhone = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE phone IS NULL OR phone = ''");
   const missingBoth = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE (email IS NULL OR email = '') AND (phone IS NULL OR phone = '')");
-  const total = await queryOne("SELECT COUNT(*) as c FROM gtm_leads");
   const hasEmail = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE email IS NOT NULL AND email != ''");
   const hasPhone = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE phone IS NOT NULL AND phone != ''");
+  const minId = await queryOne("SELECT MIN(id) as v FROM gtm_leads");
+  const maxId = await queryOne("SELECT MAX(id) as v FROM gtm_leads");
 
   return NextResponse.json({
     total: parseInt(total?.c || 0),
@@ -130,5 +153,7 @@ export async function GET(request) {
     missing_both: parseInt(missingBoth?.c || 0),
     has_email: parseInt(hasEmail?.c || 0),
     has_phone: parseInt(hasPhone?.c || 0),
+    min_id: parseInt(minId?.v || 0),
+    max_id: parseInt(maxId?.v || 0),
   });
 }

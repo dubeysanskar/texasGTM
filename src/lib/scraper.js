@@ -664,4 +664,121 @@ module.exports = {
   enrichLeadContacts,
   inferSectorFrom2GIS,
   inferSectorFromText,
+  // Email verification
+  validateEmail,
+  checkMXRecord,
+  analyzeEmailQuality,
 };
+
+// ─── 7. EMAIL VERIFICATION & QUALITY ANALYSIS ───────────────
+const dns = require('dns');
+const { promisify } = require('util');
+const resolveMx = promisify(dns.resolveMx);
+
+const VALID_EMAIL_REGEX = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+const PLACEHOLDER_EMAILS = [
+  'test@test.com', 'admin@admin.com', 'info@example.com', 'user@user.com',
+  'email@email.com', 'mail@mail.com', 'a@a.com', 'no@no.com', 'na@na.com',
+  'none@none.com', 'test@example.com', 'admin@example.com', 'noreply@',
+  'no-reply@', 'donotreply@', 'postmaster@',
+];
+const PLACEHOLDER_DOMAINS = [
+  'example.com', 'test.com', 'localhost', 'temp.com', 'fake.com',
+  'none.com', 'na.com', 'email.com', 'domain.com', 'company.com',
+  'sample.com', 'demo.com', 'placeholder.com',
+];
+
+/**
+ * Validate a single email address.
+ * Returns: { status, reason }
+ * Status: 'valid' | 'invalid_format' | 'placeholder' | 'empty'
+ */
+function validateEmail(email) {
+  if (!email || !email.trim()) return { status: 'empty', reason: 'No email provided' };
+
+  const e = email.trim().toLowerCase();
+
+  // Check format
+  if (!VALID_EMAIL_REGEX.test(e)) return { status: 'invalid_format', reason: 'Invalid email format' };
+
+  // Check placeholder
+  if (PLACEHOLDER_EMAILS.some(p => e.startsWith(p) || e === p)) {
+    return { status: 'placeholder', reason: 'Placeholder/test email' };
+  }
+
+  // Check placeholder domains
+  const domain = e.split('@')[1];
+  if (PLACEHOLDER_DOMAINS.includes(domain)) {
+    return { status: 'placeholder', reason: `Placeholder domain: ${domain}` };
+  }
+
+  // Check suspiciously short
+  if (e.length < 6) return { status: 'invalid_format', reason: 'Email too short' };
+
+  return { status: 'valid', reason: 'Format OK' };
+}
+
+/**
+ * Check if a domain has MX records (can receive email).
+ * Caches results per domain to avoid redundant DNS lookups.
+ */
+const mxCache = new Map();
+
+async function checkMXRecord(domain) {
+  if (!domain) return false;
+  if (mxCache.has(domain)) return mxCache.get(domain);
+
+  try {
+    const records = await resolveMx(domain);
+    const hasMX = records && records.length > 0;
+    mxCache.set(domain, hasMX);
+    return hasMX;
+  } catch {
+    mxCache.set(domain, false);
+    return false;
+  }
+}
+
+/**
+ * Analyze email quality for a lead. Checks:
+ *   1. Email format validity
+ *   2. Is it a placeholder/junk email
+ *   3. Does the domain have MX records
+ *   4. Does email domain match company domain
+ *
+ * Returns: { status, reason, email, domain_match }
+ * Status: 'valid' | 'invalid_format' | 'no_mx' | 'placeholder' | 'domain_mismatch' | 'empty'
+ */
+async function analyzeEmailQuality(email, companyDomain) {
+  // Basic validation
+  const basic = validateEmail(email);
+  if (basic.status !== 'valid') return { ...basic, email, domain_match: null };
+
+  const e = email.trim().toLowerCase();
+  const emailDomain = e.split('@')[1];
+
+  // MX record check
+  const hasMX = await checkMXRecord(emailDomain);
+  if (!hasMX) {
+    return { status: 'no_mx', reason: `Domain "${emailDomain}" has no mail server (MX record)`, email, domain_match: false };
+  }
+
+  // Domain mismatch check (email domain vs company website domain)
+  let domain_match = null;
+  if (companyDomain) {
+    const compDom = companyDomain.toLowerCase().replace(/^www\./, '');
+    const emailDom = emailDomain.replace(/^www\./, '');
+    // Check if domains match or are subdomains
+    domain_match = emailDom === compDom || emailDom.endsWith('.' + compDom) || compDom.endsWith('.' + emailDom);
+    if (!domain_match) {
+      // It's suspicious but could be legitimate (e.g. company uses gmail/yandex)
+      const freeProviders = ['gmail.com', 'yandex.ru', 'mail.ru', 'bk.ru', 'inbox.ru', 'list.ru', 'rambler.ru', 'yahoo.com', 'outlook.com', 'hotmail.com'];
+      if (freeProviders.includes(emailDomain)) {
+        return { status: 'suspicious', reason: `Free email (${emailDomain}), company has own domain: ${companyDomain}`, email, domain_match: false };
+      }
+      return { status: 'domain_mismatch', reason: `Email domain "${emailDomain}" ≠ company domain "${companyDomain}"`, email, domain_match: false };
+    }
+  }
+
+  return { status: 'valid', reason: 'Valid email with working mail server', email, domain_match };
+}
