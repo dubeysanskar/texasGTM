@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 const { queryOne, queryAll, query } = require('@/lib/db');
 const { getUserFromRequest, isAdmin } = require('@/lib/auth');
+const { search2GIS, parse2GISItem, scrapeWebsiteContacts, INDUSTRY_KEYWORDS, RUSSIAN_CITIES, INDUSTRY_OPTIONS } = require('@/lib/scraper');
 
 function makeDedupKey(companyName, domain) {
   const name = (companyName || '').toLowerCase().replace(/[^a-zA-Zа-яА-Я0-9]/g, '');
@@ -22,17 +23,18 @@ function inferSector(jobTitle = '', industry = '') {
   return 'manufacturing';
 }
 
+// ─── POST: Run a scrape job ──────────────────────────────────
 export async function POST(request) {
   const user = getUserFromRequest(request);
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
-  const { source, query: searchQuery } = await request.json();
+  const { source, query: searchQuery, industry, cities } = await request.json();
   if (!source) return NextResponse.json({ error: 'source is required' }, { status: 400 });
 
-  // Create job record
+  const jobLabel = source === '2gis' ? `${industry || 'all'} in ${(cities || []).join(', ') || 'all cities'}` : searchQuery;
   const job = await query(
     "INSERT INTO gtm_scrape_jobs (source, query, status, started_at, created_by) VALUES ($1, $2, 'running', NOW(), $3) RETURNING id",
-    [source, searchQuery || null, user.id]
+    [source, jobLabel || null, user.id]
   );
   const jobId = job.rows[0].id;
 
@@ -41,6 +43,7 @@ export async function POST(request) {
 
     if (source === 'hh.ru') {
       leads = await scrapeHHRu(searchQuery || 'рабочий на производство');
+
     } else if (source === 'superjob') {
       const apiKey = process.env.SUPERJOB_API_KEY;
       if (!apiKey) {
@@ -48,13 +51,24 @@ export async function POST(request) {
         return NextResponse.json({ error: 'SUPERJOB_API_KEY not configured' }, { status: 400 });
       }
       leads = await scrapeSuperjob(searchQuery || 'рабочий завод', apiKey);
+
+    } else if (source === '2gis') {
+      const apiKey = process.env.TWOGIS_API_KEY;
+      if (!apiKey) {
+        await query("UPDATE gtm_scrape_jobs SET status = 'failed', error_message = 'TWOGIS_API_KEY not set', completed_at = NOW() WHERE id = $1", [jobId]);
+        return NextResponse.json({ error: 'TWOGIS_API_KEY not configured' }, { status: 400 });
+      }
+      leads = await scrape2GIS(industry || 'all', cities || [], apiKey);
+
     } else {
       await query("UPDATE gtm_scrape_jobs SET status = 'failed', error_message = 'Unknown source', completed_at = NOW() WHERE id = $1", [jobId]);
       return NextResponse.json({ error: 'Unknown source' }, { status: 400 });
     }
 
+    // Insert leads with dedup
     let added = 0, skipped = 0;
     for (const lead of leads) {
+      if (!lead.company_name?.trim()) { skipped++; continue; }
       const dedupKey = makeDedupKey(lead.company_name, lead.domain);
       const existing = await queryOne('SELECT id FROM gtm_leads WHERE dedup_key = $1', [dedupKey]);
       if (existing) { skipped++; continue; }
@@ -76,11 +90,66 @@ export async function POST(request) {
     return NextResponse.json({ jobId, leads_found: leads.length, added, skipped });
 
   } catch (err) {
+    console.error('[scrape] job failed:', err);
     await query("UPDATE gtm_scrape_jobs SET status = 'failed', error_message = $1, completed_at = NOW() WHERE id = $2", [err.message, jobId]);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
+// ─── 2GIS SCRAPER (multi-keyword, multi-city) ────────────────
+async function scrape2GIS(industry, selectedCities, apiKey) {
+  // Get keywords for selected industry
+  let keywords = [];
+  if (industry === 'all') {
+    keywords = Object.values(INDUSTRY_KEYWORDS).flat();
+  } else if (INDUSTRY_KEYWORDS[industry]) {
+    keywords = INDUSTRY_KEYWORDS[industry];
+  } else {
+    keywords = [industry]; // custom query
+  }
+
+  // Get cities
+  let citiesToSearch = RUSSIAN_CITIES;
+  if (selectedCities && selectedCities.length > 0 && !selectedCities.includes('all')) {
+    citiesToSearch = RUSSIAN_CITIES.filter(c => selectedCities.includes(c.key));
+  }
+
+  const seenCompanies = new Set();
+  const leads = [];
+  let apiCalls = 0;
+
+  for (const city of citiesToSearch) {
+    for (const keyword of keywords) {
+      if (apiCalls >= 200) break; // Safety limit per job to preserve API quota
+
+      try {
+        const queryStr = `${keyword} ${city.name}`;
+        const { items } = await search2GIS(queryStr, apiKey);
+        apiCalls++;
+
+        for (const item of items) {
+          const companyName = item.org?.name || item.name || '';
+          if (!companyName || seenCompanies.has(companyName.toLowerCase())) continue;
+          seenCompanies.add(companyName.toLowerCase());
+
+          const lead = parse2GISItem(item, city.name);
+          if (lead.company_name) leads.push(lead);
+        }
+
+        // Small delay to avoid rate limiting
+        await new Promise(r => setTimeout(r, 200));
+      } catch (e) {
+        console.error(`[2gis] "${keyword}" in ${city.name} error:`, e.message);
+      }
+    }
+    if (apiCalls >= 200) break;
+  }
+
+  console.log(`[2gis] Used ${apiCalls} API calls, found ${leads.length} unique companies`);
+  return leads;
+}
+
+// ─── HH.RU SCRAPER ──────────────────────────────────────────
 async function scrapeHHRu(searchQuery) {
   const areas = ['1', '2', '3', '66'];
   const seenEmployers = new Set();
@@ -90,8 +159,9 @@ async function scrapeHHRu(searchQuery) {
     try {
       const params = new URLSearchParams({ text: searchQuery, area, per_page: '50', only_with_salary: 'false', employment: 'full' });
       const res = await fetch(`https://api.hh.ru/vacancies?${params}`, {
-        headers: { 'HH-User-Agent': 'TexasGTM/1.0 (contact@texasgtm.com)' },
+        headers: { 'User-Agent': 'TahaAirwavesCRM/1.0 (info@tahaairwaves.com)' },
       });
+      if (!res.ok) { console.error(`[scrape] hh.ru area ${area} HTTP ${res.status}`); continue; }
       const data = await res.json();
       if (!data.items) continue;
 
@@ -103,9 +173,9 @@ async function scrapeHHRu(searchQuery) {
         let empDetails = {};
         try {
           const empRes = await fetch(`https://api.hh.ru/employers/${employer.id}`, {
-            headers: { 'HH-User-Agent': 'TexasGTM/1.0 (contact@texasgtm.com)' },
+            headers: { 'User-Agent': 'TahaAirwavesCRM/1.0 (info@tahaairwaves.com)' },
           });
-          empDetails = await empRes.json();
+          if (empRes.ok) empDetails = await empRes.json();
         } catch {}
 
         leads.push({
@@ -128,6 +198,7 @@ async function scrapeHHRu(searchQuery) {
   return leads;
 }
 
+// ─── SUPERJOB SCRAPER ────────────────────────────────────────
 async function scrapeSuperjob(searchQuery, apiKey) {
   const params = new URLSearchParams({ keyword: searchQuery, count: '50', no_agreement: '1' });
   const res = await fetch(`https://api.superjob.ru/2.0/vacancies/?${params}`, {
@@ -163,9 +234,22 @@ async function scrapeSuperjob(searchQuery, apiKey) {
   return leads;
 }
 
+// ─── GET: Fetch scrape job history + config ──────────────────
 export async function GET(request) {
   const user = getUserFromRequest(request);
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
+
+  const { searchParams } = new URL(request.url);
+  if (searchParams.get('config') === '1') {
+    // Return available cities, industries for the UI
+    return NextResponse.json({
+      cities: RUSSIAN_CITIES,
+      industries: INDUSTRY_OPTIONS,
+      has2gisKey: !!process.env.TWOGIS_API_KEY,
+      hasSuperjobKey: !!process.env.SUPERJOB_API_KEY,
+    });
+  }
+
   const jobs = await queryAll('SELECT * FROM gtm_scrape_jobs ORDER BY created_at DESC LIMIT 20');
   return NextResponse.json(jobs);
 }
