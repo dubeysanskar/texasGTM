@@ -1,12 +1,11 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
-
-const PRESET_QUERIES_HH = ['рабочий на производство', 'сварщик завод', 'грузчик склад', 'разнорабочий строительство', 'комплектовщик', 'складской рабочий'];
-const PRESET_QUERIES_WEB = ['производственное предприятие москва контакты email', 'строительная компания россия email телефон', 'завод набор персонала контакты', 'металлургический завод email директор', 'пищевое производство вакансии рабочие email'];
+const PRESET_HH = ['рабочий на производство', 'сварщик завод', 'грузчик склад', 'разнорабочий строительство'];
+const PRESET_WEB = ['производственное предприятие москва контакты email', 'строительная компания россия email телефон', 'завод набор персонала контакты'];
 
 export default function LeadScraperPage() {
   const { user, loading: authLoading, isAdmin } = useAuth();
@@ -33,6 +32,7 @@ export default function LeadScraperPage() {
   const [enrichMaxLeads, setEnrichMaxLeads] = useState(100);
   const [rangeFrom, setRangeFrom] = useState('');
   const [rangeTo, setRangeTo] = useState('');
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Verification
   const [verifying, setVerifying] = useState(false);
@@ -40,10 +40,20 @@ export default function LeadScraperPage() {
   const [deepVerifying, setDeepVerifying] = useState(false);
   const [deepVerifyResult, setDeepVerifyResult] = useState(null);
 
+  // Activity log (live progress)
+  const [activityLog, setActivityLog] = useState([]);
+  const logRef = useRef(null);
+
   // Config & history
   const [config, setConfig] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
+
+  function addLog(msg, type = 'info') {
+    const entry = { time: new Date().toLocaleTimeString(), msg, type, id: Date.now() + Math.random() };
+    setActivityLog(prev => [...prev.slice(-50), entry]);
+    setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
+  }
 
   useEffect(() => { if (!authLoading && !user) router.push('/'); if (!authLoading && user && !isAdmin) router.push('/dashboard'); }, [user, authLoading, router, isAdmin]);
   useEffect(() => { if (user && isAdmin) fetch('/api/leads/scrape?config=1').then(r => r.json()).then(setConfig).catch(() => {}); }, [user, isAdmin]);
@@ -54,54 +64,101 @@ export default function LeadScraperPage() {
 
   useEffect(() => { if (user && isAdmin) { fetchJobs(); fetchEnrichStats(); fetchVerifyStats(); } }, [user, isAdmin, fetchJobs, fetchEnrichStats, fetchVerifyStats]);
 
-  // ─── Handlers ──────────────────────────────────────────
+  // ─── Scrape Handler ────────────────────────────────────
   async function handleScrape() {
     setScraping(true); setScrapeResult(null);
+    addLog(`🚀 Starting scrape from ${scrapeSource}...`, 'start');
+    addLog(`📋 Max leads: ${maxLeads}`, 'info');
+
     try {
       const body = { source: scrapeSource, maxLeads };
-      if (scrapeSource === '2gis') { body.industry = selectedIndustry; body.cities = selectedCities.includes('all') ? [] : selectedCities; }
-      else if (scrapeSource === 'google_dork') { body.dorkType = dorkType; body.dorkVars = { city: dorkCity, industry: dorkIndustry }; body.customDork = customDork; }
-      else body.query = scrapeQuery;
+      if (scrapeSource === '2gis') {
+        body.industry = selectedIndustry; body.cities = selectedCities.includes('all') ? [] : selectedCities;
+        addLog(`🗺️ 2GIS: Industry="${selectedIndustry}", Cities=${selectedCities.join(', ')}`, 'info');
+      } else if (scrapeSource === 'google_dork') {
+        body.dorkType = dorkType; body.dorkVars = { city: dorkCity, industry: dorkIndustry }; body.customDork = customDork;
+        addLog(`🔍 Dorking: type="${dorkType}", city="${dorkCity}"`, 'info');
+      } else {
+        body.query = scrapeQuery;
+        addLog(`🔎 Query: "${scrapeQuery}"`, 'info');
+      }
+
+      addLog('⏳ Sending request to server... (this may take 1-5 minutes)', 'wait');
+
       const res = await fetch('/api/leads/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (res.ok) { setScrapeResult({ ok: true, added: data.added, skipped: data.skipped, found: data.leads_found }); fetchJobs(); fetchEnrichStats(); fetchVerifyStats(); }
-      else setScrapeResult({ ok: false, error: data.error });
-    } catch (e) { setScrapeResult({ ok: false, error: e.message }); }
+
+      if (res.ok) {
+        setScrapeResult({ ok: true, added: data.added, skipped: data.skipped, found: data.leads_found });
+        addLog(`✅ Scrape complete! Found ${data.leads_found}, Added ${data.added}, Skipped ${data.skipped} duplicates`, 'success');
+        fetchJobs(); fetchEnrichStats(); fetchVerifyStats();
+      } else {
+        setScrapeResult({ ok: false, error: data.error });
+        addLog(`❌ Scrape failed: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      setScrapeResult({ ok: false, error: e.message });
+      addLog(`❌ Error: ${e.message}`, 'error');
+    }
     setScraping(false);
   }
 
-  async function handleEnrich() {
+  // ─── Enrich Handler (accepts direct params to avoid state timing issues) ───
+  async function handleEnrich(overrideMode, overrideMax) {
+    const mode = overrideMode || enrichMode;
+    const max = overrideMax || enrichMaxLeads;
+
     setEnriching(true); setEnrichResult(null);
+    addLog(`🔄 Starting enrichment (mode: ${mode}, max: ${max})...`, 'start');
+    addLog('📡 Fallback chain: Website crawling → 2GIS → hh.ru → Email guessing', 'info');
+    addLog('⏳ Crawling company websites for real contacts... (this takes 1-5 minutes)', 'wait');
+
     try {
-      const body = { mode: enrichMode, maxLeads: enrichMaxLeads };
-      if (rangeFrom && rangeTo) { body.rangeFrom = parseInt(rangeFrom); body.rangeTo = parseInt(rangeTo); }
+      const body = { mode, maxLeads: max };
+      if (rangeFrom && rangeTo) { body.rangeFrom = parseInt(rangeFrom); body.rangeTo = parseInt(rangeTo); addLog(`📍 Range: IDs ${rangeFrom} to ${rangeTo}`, 'info'); }
+
       const res = await fetch('/api/leads/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (res.ok) { setEnrichResult({ ok: true, ...data }); fetchEnrichStats(); fetchJobs(); fetchVerifyStats(); }
-      else setEnrichResult({ ok: false, error: data.error });
-    } catch (e) { setEnrichResult({ ok: false, error: e.message }); }
+
+      if (!res.ok) {
+        const text = await res.text();
+        let errMsg;
+        try { errMsg = JSON.parse(text).error; } catch { errMsg = `Server error (${res.status})`; }
+        setEnrichResult({ ok: false, error: errMsg });
+        addLog(`❌ Enrichment failed: ${errMsg}`, 'error');
+      } else {
+        const data = await res.json();
+        setEnrichResult({ ok: true, ...data });
+        setBannerDismissed(true);
+        addLog(`✅ Enrichment complete!`, 'success');
+        addLog(`📧 ${data.emails_found} emails found | 📞 ${data.phones_found} phones found | ✏️ ${data.enriched}/${data.total} updated`, 'success');
+        if (data.changes?.length > 0) {
+          data.changes.slice(0, 5).forEach(c => addLog(`  ${c.company}: ${c.old_email} → ${c.new_email}`, 'change'));
+          if (data.changes.length > 5) addLog(`  ... and ${data.changes.length - 5} more changes`, 'info');
+        }
+        fetchEnrichStats(); fetchJobs(); fetchVerifyStats();
+      }
+    } catch (e) {
+      setEnrichResult({ ok: false, error: e.message });
+      addLog(`❌ Error: ${e.message}`, 'error');
+    }
     setEnriching(false);
   }
 
   async function handleDeepVerify(smtpCheck = false) {
     setDeepVerifying(true); setDeepVerifyResult(null);
+    addLog(`🔬 Starting ${smtpCheck ? 'SMTP mailbox' : 'MX record'} verification...`, 'start');
     try {
       const res = await fetch('/api/leads/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ maxLeads: 200, smtpCheck }) });
-      if (res.ok) setDeepVerifyResult(await res.json());
-    } catch {}
+      if (res.ok) { const data = await res.json(); setDeepVerifyResult(data); addLog(`✅ Verified ${data.total_checked} emails. Valid: ${data.valid}, Bad: ${data.invalid_format}, No MX: ${data.no_mx}`, 'success'); }
+      else addLog('❌ Verification failed', 'error');
+    } catch (e) { addLog(`❌ Error: ${e.message}`, 'error'); }
     setDeepVerifying(false);
   }
 
   async function handleEnrichBadOnly() {
     if (!verifyStats?.bad_lead_ids?.length) return;
-    setEnriching(true); setEnrichResult(null);
-    try {
-      const res = await fetch('/api/leads/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'selected', leadIds: verifyStats.bad_lead_ids.slice(0, enrichMaxLeads) }) });
-      const data = await res.json();
-      if (res.ok) { setEnrichResult({ ok: true, ...data }); fetchEnrichStats(); fetchVerifyStats(); fetchJobs(); }
-      else setEnrichResult({ ok: false, error: data.error });
-    } catch (e) { setEnrichResult({ ok: false, error: e.message }); }
-    setEnriching(false);
+    addLog(`🔧 Fixing ${verifyStats.bad_lead_ids.length} leads with bad format emails...`, 'start');
+    await handleEnrich('selected');
   }
 
   function toggleCity(key) {
@@ -113,13 +170,58 @@ export default function LeadScraperPage() {
 
   const srcIcon = { '2gis': '🗺️', 'hh.ru': '💼', 'superjob': '📋', 'web_search': '🌐', 'google_dork': '🔍', 'enrichment': '🔄' };
   const srcLabel = { '2gis': '2GIS', 'hh.ru': 'hh.ru', 'superjob': 'SuperJob', 'web_search': 'Web Search', 'google_dork': 'Dorking', 'enrichment': 'Enrichment' };
+  const showBanner = enrichStats && enrichStats.total > 0 && !bannerDismissed && !enrichResult?.ok;
 
   return (
     <div className="page-content">
       <div className="page-header">
         <h1><MI name="travel_explore" size={26} /> Lead Scraper</h1>
-        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>5 sources · Email verification · Smart enrichment with range filtering</p>
+        <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>5 sources · Email verification · Smart enrichment</p>
       </div>
+
+      {/* ═══ RED WARNING BANNER ═══ */}
+      {showBanner && (
+        <div style={{ marginBottom: 20, padding: '16px 20px', borderRadius: 12, background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)', color: '#fff', boxShadow: '0 4px 20px rgba(220,38,38,0.3)', position: 'relative' }}>
+          <button onClick={() => setBannerDismissed(true)} style={{ position: 'absolute', top: 8, right: 12, background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: '1.6rem' }}>🚨</span>
+            <div>
+              <div style={{ fontSize: '1rem', fontWeight: 800 }}>ALL {enrichStats.total} LEADS HAVE WRONG EMAILS</div>
+              <div style={{ fontSize: '0.78rem', opacity: 0.9, marginTop: 2 }}>Emails were scraped from job boards (hh.ru) — they are generic HR/recruitment emails, NOT actual company contacts. Re-enrich to get real emails from company websites & 2GIS.</div>
+            </div>
+          </div>
+          <button onClick={() => handleEnrich('force_all', enrichStats.total)} disabled={enriching} style={{ marginTop: 6, padding: '10px 28px', borderRadius: 8, border: '2px solid #fff', background: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: enriching ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {enriching ? <><span className="spinner-sm" /> RE-ENRICHING…</> : <>🔄 RE-ENRICH ALL {enrichStats.total} LEADS NOW</>}
+          </button>
+        </div>
+      )}
+
+      {/* ═══ LIVE ACTIVITY LOG ═══ */}
+      {(scraping || enriching || deepVerifying || activityLog.length > 0) && (
+        <div className="card" style={{ marginBottom: 20, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {(scraping || enriching || deepVerifying) && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', animation: 'pulse 1.5s infinite' }} />}
+              <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>{scraping ? '🚀 Scraping in progress...' : enriching ? '🔄 Enrichment in progress...' : deepVerifying ? '🔬 Verifying...' : '📋 Activity Log'}</span>
+            </div>
+            {!scraping && !enriching && !deepVerifying && <button onClick={() => setActivityLog([])} style={{ fontSize: '0.68rem', padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 6, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}>Clear</button>}
+          </div>
+          {(scraping || enriching) && (
+            <div style={{ marginBottom: 8, height: 3, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: 'var(--primary)', borderRadius: 2, animation: 'progress 2.5s ease-in-out infinite', width: '60%' }} />
+            </div>
+          )}
+          <div ref={logRef} style={{ maxHeight: 160, overflow: 'auto', fontSize: '0.72rem', fontFamily: 'monospace', lineHeight: 1.8 }}>
+            {activityLog.map(e => (
+              <div key={e.id} style={{ color: e.type === 'error' ? '#dc2626' : e.type === 'success' ? '#166534' : e.type === 'start' ? '#1e40af' : e.type === 'wait' ? '#d97706' : e.type === 'change' ? '#7c3aed' : '#6b7280', borderLeft: `2px solid ${e.type === 'error' ? '#dc2626' : e.type === 'success' ? '#10b981' : 'transparent'}`, paddingLeft: 6 }}>
+                <span style={{ color: '#9ca3af', marginRight: 6 }}>{e.time}</span>{e.msg}
+              </div>
+            ))}
+            {(scraping || enriching) && <div style={{ color: '#d97706' }}><span style={{ animation: 'pulse 1s infinite' }}>⏳</span> Working... please wait</div>}
+          </div>
+          <style>{`@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } } @keyframes progress { 0% { width: 10%; margin-left: 0; } 50% { width: 50%; margin-left: 25%; } 100% { width: 10%; margin-left: 90%; } }`}</style>
+        </div>
+      )}
 
       {/* ═══ SCRAPE PANEL ═══ */}
       <div className="card" style={{ marginBottom: 20 }}>
@@ -139,29 +241,14 @@ export default function LeadScraperPage() {
               {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </Field>
-          {scrapeSource === '2gis' && config && (
-            <Field label="Industry">
-              <select value={selectedIndustry} onChange={e => setSelectedIndustry(e.target.value)} className="leads-select" style={{ width: '100%', minWidth: 160 }}>
-                {config.industries.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
-              </select>
-            </Field>
-          )}
-          {scrapeSource === 'google_dork' && config && (
-            <Field label="Dork Type">
-              <select value={dorkType} onChange={e => setDorkType(e.target.value)} className="leads-select" style={{ width: '100%', minWidth: 200 }}>
-                {config.dorkPresets?.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-              </select>
-            </Field>
-          )}
+          {scrapeSource === '2gis' && config && <Field label="Industry"><select value={selectedIndustry} onChange={e => setSelectedIndustry(e.target.value)} className="leads-select" style={{ minWidth: 160 }}>{config.industries.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}</select></Field>}
+          {scrapeSource === 'google_dork' && config && <Field label="Dork Type"><select value={dorkType} onChange={e => setDorkType(e.target.value)} className="leads-select" style={{ minWidth: 200 }}>{config.dorkPresets?.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}</select></Field>}
           {['web_search', 'hh.ru', 'superjob'].includes(scrapeSource) && (
             <div style={{ flex: 1, minWidth: 220 }}>
               <label className="scraper-label">Search Query</label>
               <div style={{ display: 'flex', gap: 6 }}>
-                <input value={scrapeQuery} onChange={e => setScrapeQuery(e.target.value)} className="form-input" style={{ flex: 1 }} placeholder="Enter keywords..." />
-                <select onChange={e => e.target.value && setScrapeQuery(e.target.value)} className="leads-select" style={{ fontSize: '0.7rem', maxWidth: 150 }}>
-                  <option value="">Presets</option>
-                  {(scrapeSource === 'web_search' ? PRESET_QUERIES_WEB : PRESET_QUERIES_HH).map(q => <option key={q} value={q}>{q.slice(0, 30)}…</option>)}
-                </select>
+                <input value={scrapeQuery} onChange={e => setScrapeQuery(e.target.value)} className="form-input" style={{ flex: 1 }} placeholder="Keywords..." />
+                <select onChange={e => e.target.value && setScrapeQuery(e.target.value)} className="leads-select" style={{ fontSize: '0.7rem', maxWidth: 140 }}><option value="">Presets</option>{(scrapeSource === 'web_search' ? PRESET_WEB : PRESET_HH).map(q => <option key={q} value={q}>{q.slice(0, 28)}…</option>)}</select>
               </div>
             </div>
           )}
@@ -169,166 +256,74 @@ export default function LeadScraperPage() {
             {scraping ? <><span className="spinner-sm" /> Scraping…</> : <><MI name="play_arrow" size={16} /> Run Scrape</>}
           </button>
         </div>
-
         {scrapeSource === 'google_dork' && (
-          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
-              <Field label="City"><input value={dorkCity} onChange={e => setDorkCity(e.target.value)} className="form-input" style={{ width: 140 }} /></Field>
-              <Field label="Industry"><input value={dorkIndustry} onChange={e => setDorkIndustry(e.target.value)} className="form-input" style={{ width: 140 }} /></Field>
-              {dorkType === 'custom' && <div style={{ flex: 1, minWidth: 260 }}><label className="scraper-label">Custom Dork</label><input value={customDork} onChange={e => setCustomDork(e.target.value)} className="form-input" style={{ width: '100%' }} placeholder='intitle:контакты "строительная" "@" site:.ru' /></div>}
+          <div style={{ marginBottom: 10, padding: '10px 14px', borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
+              <Field label="City"><input value={dorkCity} onChange={e => setDorkCity(e.target.value)} className="form-input" style={{ width: 130 }} /></Field>
+              <Field label="Industry"><input value={dorkIndustry} onChange={e => setDorkIndustry(e.target.value)} className="form-input" style={{ width: 130 }} /></Field>
+              {dorkType === 'custom' && <div style={{ flex: 1, minWidth: 250 }}><label className="scraper-label">Custom Dork</label><input value={customDork} onChange={e => setCustomDork(e.target.value)} className="form-input" style={{ width: '100%' }} placeholder='intitle:контакты "строительная" "@" site:.ru' /></div>}
             </div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>💡 <code>site:.ru</code> · <code>intitle:контакты</code> · <code>"@domain.ru"</code> · <code>"exact phrase"</code></div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>💡 <code>site:.ru</code> · <code>intitle:</code> · <code>"@domain.ru"</code> · <code>"exact"</code></div>
           </div>
         )}
-
         {scrapeSource === '2gis' && config && (
-          <div style={{ marginBottom: 8 }}>
+          <div>
             <label className="scraper-label">Cities</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 4 }}>
-              <Chip label="All Cities" active={selectedCities.includes('all')} onClick={() => toggleCity('all')} />
+              <Chip label="All" active={selectedCities.includes('all')} onClick={() => toggleCity('all')} />
               {config.cities.map(c => <Chip key={c.key} label={c.nameEn || c.name} active={selectedCities.includes(c.key)} onClick={() => toggleCity(c.key)} />)}
             </div>
           </div>
         )}
-
-        <ResultBanner result={scrapeResult} successMsg={r => `✓ ${r.added} new leads added, ${r.skipped} duplicates skipped (${r.found} found)`} />
+        <ResultBanner result={scrapeResult} successMsg={r => `✓ ${r.added} added, ${r.skipped} skipped (${r.found} found)`} />
       </div>
 
-      {/* ═══ WARNING BANNER — ALL EMAILS ARE WRONG ═══ */}
-      {enrichStats && enrichStats.total > 0 && (
-        <div style={{ marginBottom: 20, padding: '16px 20px', borderRadius: 12, background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)', color: '#fff', boxShadow: '0 4px 20px rgba(220,38,38,0.3)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <span style={{ fontSize: '1.6rem' }}>🚨</span>
-            <div>
-              <div style={{ fontSize: '1rem', fontWeight: 800, letterSpacing: '-0.02em' }}>
-                ALL {enrichStats.total} LEADS HAVE WRONG EMAILS
-              </div>
-              <div style={{ fontSize: '0.78rem', opacity: 0.9, marginTop: 2 }}>
-                Emails were auto-generated by job boards (hh.ru) and do NOT belong to the actual companies.
-                You must re-enrich to get real company contacts from websites & 2GIS.
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
-            <button onClick={() => { setEnrichMode('force_all'); setEnrichMaxLeads(enrichStats.total); handleEnrich(); }} disabled={enriching} style={{ padding: '10px 28px', borderRadius: 8, border: '2px solid #fff', background: 'rgba(255,255,255,0.15)', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: enriching ? 'not-allowed' : 'pointer', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              {enriching ? <><span className="spinner-sm" /> RE-ENRICHING…</> : <>🔄 RE-ENRICH ALL {enrichStats.total} LEADS NOW</>}
-            </button>
-            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>
-              This will scrape real emails from company websites, 2GIS, and hh.ru employer profiles
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* ═══ EMAIL VERIFICATION PANEL ═══ */}
+      {/* ═══ EMAIL VERIFICATION ═══ */}
       <div className="card" style={{ marginBottom: 20 }}>
         <SectionTitle color="#8B5CF6" title="Email Quality Verification" />
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
-          Checks format, placeholder detection, and DNS MX records. <strong style={{ color: '#dc2626' }}>Note: Even "valid format" emails may be WRONG — they look like emails but belong to the wrong companies.</strong>
-        </p>
-
         {verifying ? (
-          <div style={{ padding: 24, textAlign: 'center' }}>
-            <div style={{ display: 'inline-block', width: 36, height: 36, border: '3px solid #e9d5ff', borderTop: '3px solid #8B5CF6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <div style={{ marginTop: 10, fontWeight: 600, color: '#6b21a8', fontSize: '0.85rem' }}>Scanning {enrichStats?.total || '...'} leads for email quality...</div>
-            <div style={{ marginTop: 4, fontSize: '0.72rem', color: '#9ca3af' }}>Checking format, placeholder patterns, and domain validity</div>
+          <div style={{ padding: 20, textAlign: 'center' }}>
+            <div style={{ display: 'inline-block', width: 28, height: 28, border: '3px solid #e9d5ff', borderTop: '3px solid #8B5CF6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ marginTop: 8, fontWeight: 600, color: '#6b21a8', fontSize: '0.82rem' }}>Scanning {enrichStats?.total || '...'} leads...</div>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         ) : verifyStats ? (
           <>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-              <StatCard value={verifyStats.total} label="Total Leads" color="#0369a1" bg="#f0f9ff" border="#bae6fd" />
-              <StatCard value={verifyStats.valid_format} label="Valid Format ≠ Correct" color="#d97706" bg="#fffbeb" border="#fde68a" />
-              <StatCard value={verifyStats.invalid_format} label="❌ Bad Format" color="#dc2626" bg="#fef2f2" border="#fecaca" />
-              <StatCard value={verifyStats.placeholder} label="🗑️ Placeholder" color="#9333ea" bg="#faf5ff" border="#e9d5ff" />
-              <StatCard value={verifyStats.empty} label="📭 Empty" color="#6b7280" bg="#f9fafb" border="#e5e7eb" />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+              <StatCard value={verifyStats.total} label="Total" color="#0369a1" bg="#f0f9ff" border="#bae6fd" />
+              <StatCard value={verifyStats.valid_format} label="Valid Format" color="#d97706" bg="#fffbeb" border="#fde68a" />
+              <StatCard value={verifyStats.invalid_format} label="Bad Format" color="#dc2626" bg="#fef2f2" border="#fecaca" />
+              <StatCard value={verifyStats.placeholder} label="Placeholder" color="#9333ea" bg="#faf5ff" border="#e9d5ff" />
+              <StatCard value={verifyStats.empty} label="Empty" color="#6b7280" bg="#f9fafb" border="#e5e7eb" />
             </div>
-
-            {/* Explicit warning that valid format ≠ correct email */}
-            {verifyStats.valid_format > 0 && (
-              <div style={{ marginBottom: 14, padding: '10px 14px', borderRadius: 8, background: '#fef3c7', border: '1px solid #f59e0b', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⚠️</span>
-                <div style={{ fontSize: '0.75rem', color: '#92400e', lineHeight: 1.5 }}>
-                  <strong>{verifyStats.valid_format} emails pass format check</strong> but this does NOT mean they are correct.
-                  These emails were scraped from hh.ru job postings and likely belong to recruitment accounts, not the actual companies.
-                  <strong> Use "Re-enrich" above to replace them with real company emails.</strong>
-                </div>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button onClick={() => handleDeepVerify(false)} disabled={deepVerifying} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#8B5CF6', color: '#fff', border: 'none', borderRadius: 8 }}>
-                {deepVerifying ? <><span className="spinner-sm" /> Verifying…</> : <><MI name="dns" size={14} /> Check MX Records</>}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => handleDeepVerify(false)} disabled={deepVerifying} className="btn" style={{ padding: '7px 14px', fontSize: '0.75rem', background: '#8B5CF6', color: '#fff', border: 'none', borderRadius: 8 }}>
+                {deepVerifying ? 'Verifying…' : '🔍 Check MX Records'}
               </button>
-              <button onClick={() => handleDeepVerify(true)} disabled={deepVerifying} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8 }}>
-                {deepVerifying ? <><span className="spinner-sm" /> Connecting to mail servers…</> : <><MI name="mark_email_read" size={14} /> Verify Mailboxes Exist (SMTP)</>}
+              <button onClick={() => handleDeepVerify(true)} disabled={deepVerifying} className="btn" style={{ padding: '7px 14px', fontSize: '0.75rem', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 8 }}>
+                {deepVerifying ? 'Connecting…' : '📧 Verify Mailboxes (SMTP)'}
               </button>
-              {verifyStats.bad_total > 0 && (
-                <button onClick={handleEnrichBadOnly} disabled={enriching} className="btn" style={{ padding: '8px 16px', fontSize: '0.78rem', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8 }}>
-                  {enriching ? <><span className="spinner-sm" /> Fixing…</> : <><MI name="build" size={14} /> Fix {verifyStats.bad_total} Bad Format</>}
-                </button>
-              )}
-              <button onClick={fetchVerifyStats} className="btn" style={{ padding: '8px 10px', fontSize: '0.78rem', background: 'transparent', color: '#8B5CF6', border: '1px solid #8B5CF6', borderRadius: 8 }}>
-                <MI name="refresh" size={14} />
-              </button>
+              {verifyStats.bad_total > 0 && <button onClick={handleEnrichBadOnly} disabled={enriching} className="btn" style={{ padding: '7px 14px', fontSize: '0.75rem', background: '#ea580c', color: '#fff', border: 'none', borderRadius: 8 }}>Fix {verifyStats.bad_total} Bad</button>}
             </div>
           </>
         ) : null}
-
-        {/* Deep verify progress */}
-        {deepVerifying && (
-          <div style={{ marginTop: 14, padding: '14px 16px', borderRadius: 10, background: '#f5f3ff', border: '1px solid #e9d5ff' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ display: 'inline-block', width: 20, height: 20, border: '2px solid #e9d5ff', borderTop: '2px solid #8B5CF6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.82rem', color: '#6b21a8' }}>Deep verification in progress...</div>
-                <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: 2 }}>Checking DNS MX records for each email domain — verifying mail servers actually exist. This can take 30-60 seconds.</div>
-              </div>
-            </div>
-            <div style={{ marginTop: 10, height: 4, borderRadius: 2, background: '#e9d5ff', overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: '#8B5CF6', borderRadius: 2, animation: 'progress 2s ease-in-out infinite', width: '60%' }} />
-            </div>
-            <style>{`@keyframes progress { 0% { width: 10%; margin-left: 0; } 50% { width: 60%; margin-left: 20%; } 100% { width: 10%; margin-left: 90%; } }`}</style>
-          </div>
-        )}
-
-        {/* Deep verify results */}
         {deepVerifyResult && !deepVerifying && (
-          <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 10, background: '#faf5ff', border: '1px solid #e9d5ff' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.82rem', marginBottom: 8 }}>🔬 Verification Results ({deepVerifyResult.total_checked} emails checked)</div>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-              <MiniStat label="✅ MX Valid" value={deepVerifyResult.valid} color="#166534" />
-              <MiniStat label="❌ Bad Format" value={deepVerifyResult.invalid_format} color="#dc2626" />
-              <MiniStat label="🚫 No Mail Server" value={deepVerifyResult.no_mx} color="#991b1b" />
-              <MiniStat label="🗑️ Placeholder" value={deepVerifyResult.placeholder} color="#9333ea" />
-              <MiniStat label="🔀 Wrong Domain" value={deepVerifyResult.domain_mismatch} color="#d97706" />
-              <MiniStat label="🤔 Suspicious" value={deepVerifyResult.suspicious} color="#ea580c" />
-              {(deepVerifyResult.smtp_exists > 0 || deepVerifyResult.smtp_not_exists > 0) && (
-                <>
-                  <span style={{ borderLeft: '2px solid #e9d5ff', paddingLeft: 10, display: 'flex', gap: 10 }}>
-                    <MiniStat label="📬 Mailbox Exists" value={deepVerifyResult.smtp_exists} color="#166534" />
-                    <MiniStat label="📭 Mailbox NOT Exists" value={deepVerifyResult.smtp_not_exists} color="#dc2626" />
-                    <MiniStat label="❓ Unknown" value={deepVerifyResult.smtp_unknown} color="#6b7280" />
-                  </span>
-                </>
-              )}
+          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#faf5ff', border: '1px solid #e9d5ff', fontSize: '0.75rem' }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>🔬 Results ({deepVerifyResult.total_checked} checked)</div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+              <MiniStat label="✅ Valid" value={deepVerifyResult.valid} color="#166534" />
+              <MiniStat label="❌ Bad" value={deepVerifyResult.invalid_format} color="#dc2626" />
+              <MiniStat label="🚫 No MX" value={deepVerifyResult.no_mx} color="#991b1b" />
+              <MiniStat label="🔀 Mismatch" value={deepVerifyResult.domain_mismatch} color="#d97706" />
+              {deepVerifyResult.smtp_not_exists > 0 && <MiniStat label="📭 Not Exists" value={deepVerifyResult.smtp_not_exists} color="#dc2626" />}
+              {deepVerifyResult.smtp_exists > 0 && <MiniStat label="📬 Exists" value={deepVerifyResult.smtp_exists} color="#166534" />}
             </div>
             {deepVerifyResult.details?.length > 0 && (
-              <details style={{ fontSize: '0.72rem' }} open>
-                <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#6b21a8' }}>Show {deepVerifyResult.details.length} problematic emails</summary>
-                <div style={{ maxHeight: 240, overflow: 'auto', marginTop: 6 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem' }}>
-                    <thead><tr style={{ borderBottom: '2px solid #e9d5ff', background: '#f5f3ff' }}><th style={{ textAlign: 'left', padding: '6px 4px' }}>ID</th><th style={{ textAlign: 'left', padding: '6px 4px' }}>Company</th><th style={{ textAlign: 'left', padding: '6px 4px' }}>Current Email</th><th style={{ textAlign: 'left', padding: '6px 4px' }}>Problem</th></tr></thead>
-                    <tbody>
-                      {deepVerifyResult.details.map(d => (
-                        <tr key={d.id} style={{ borderBottom: '1px solid #f3e8ff' }}>
-                          <td style={{ padding: '4px', color: '#6b7280' }}>#{d.id}</td>
-                          <td style={{ padding: '4px', fontWeight: 500 }}>{d.company?.slice(0, 28)}</td>
-                          <td style={{ padding: '4px', color: '#dc2626', fontFamily: 'monospace', fontSize: '0.68rem' }}>{d.email || '(empty)'}</td>
-                          <td style={{ padding: '4px', color: '#9333ea', fontSize: '0.68rem' }}>{d.reason}</td>
-                        </tr>
-                      ))}
-                    </tbody>
+              <details><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#6b21a8' }}>Show {deepVerifyResult.details.length} issues</summary>
+                <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 4 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.68rem' }}>
+                    <thead><tr style={{ borderBottom: '2px solid #e9d5ff' }}><th style={{ textAlign: 'left', padding: 3 }}>ID</th><th style={{ textAlign: 'left', padding: 3 }}>Company</th><th style={{ textAlign: 'left', padding: 3 }}>Email</th><th style={{ textAlign: 'left', padding: 3 }}>Problem</th></tr></thead>
+                    <tbody>{deepVerifyResult.details.map(d => (<tr key={d.id} style={{ borderBottom: '1px solid #f3e8ff' }}><td style={{ padding: 3, color: '#9ca3af' }}>#{d.id}</td><td style={{ padding: 3 }}>{d.company?.slice(0, 24)}</td><td style={{ padding: 3, color: '#dc2626', fontFamily: 'monospace', fontSize: '0.66rem' }}>{d.email || '—'}</td><td style={{ padding: 3, color: '#7c3aed', fontSize: '0.66rem' }}>{d.reason}</td></tr>))}</tbody>
                   </table>
                 </div>
               </details>
@@ -337,14 +332,10 @@ export default function LeadScraperPage() {
         )}
       </div>
 
-
       {/* ═══ ENRICHMENT PANEL ═══ */}
       <div className="card" style={{ marginBottom: 20 }}>
         <SectionTitle color="#3B82F6" title="Enrich Leads (Fix Emails & Phones)" />
-        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 14px', lineHeight: 1.5 }}>
-          4 fallback sources: Website crawling → 2GIS lookup → hh.ru search → Email guessing
-        </p>
-
+        <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0 0 12px' }}>4 fallbacks: Website crawling → 2GIS → hh.ru → Email guessing</p>
         {enrichStats && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
             <StatCard value={enrichStats.total} label="Total" color="#0369a1" bg="#f0f9ff" border="#bae6fd" />
@@ -354,106 +345,66 @@ export default function LeadScraperPage() {
             <StatCard value={enrichStats.missing_phone} label="No Phone" color="#d97706" bg="#fffbeb" border="#fde68a" />
           </div>
         )}
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 12 }}>
-          <Field label="Mode">
-            <select value={enrichMode} onChange={e => setEnrichMode(e.target.value)} className="leads-select" style={{ minWidth: 220 }}>
-              <option value="force_all">🔄 Force Re-enrich (overwrite wrong data)</option>
-              <option value="missing">📭 Only Missing (empty email/phone)</option>
-            </select>
-          </Field>
-          <Field label="Max Leads">
-            <select value={enrichMaxLeads} onChange={e => setEnrichMaxLeads(Number(e.target.value))} className="leads-select" style={{ width: 90 }}>
-              {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </Field>
-          <Field label={`From ID ${enrichStats ? `(min: ${enrichStats.min_id})` : ''}`}>
-            <input type="number" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)} className="form-input" style={{ width: 90 }} placeholder="From" />
-          </Field>
-          <Field label={`To ID ${enrichStats ? `(max: ${enrichStats.max_id})` : ''}`}>
-            <input type="number" value={rangeTo} onChange={e => setRangeTo(e.target.value)} className="form-input" style={{ width: 90 }} placeholder="To" />
-          </Field>
-          <button onClick={handleEnrich} disabled={enriching} className="btn btn-primary" style={{ padding: '10px 20px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 10 }}>
+          <Field label="Mode"><select value={enrichMode} onChange={e => setEnrichMode(e.target.value)} className="leads-select" style={{ minWidth: 200 }}><option value="force_all">🔄 Force (overwrite wrong data)</option><option value="missing">📭 Only Missing</option></select></Field>
+          <Field label="Max"><select value={enrichMaxLeads} onChange={e => setEnrichMaxLeads(Number(e.target.value))} className="leads-select" style={{ width: 80 }}>{[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}</select></Field>
+          <Field label={`From ID`}><input type="number" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)} className="form-input" style={{ width: 80 }} /></Field>
+          <Field label={`To ID`}><input type="number" value={rangeTo} onChange={e => setRangeTo(e.target.value)} className="form-input" style={{ width: 80 }} /></Field>
+          <button onClick={() => handleEnrich()} disabled={enriching} className="btn btn-primary" style={{ padding: '10px 20px', whiteSpace: 'nowrap' }}>
             {enriching ? <><span className="spinner-sm" /> Enriching…</> : <><MI name="auto_fix_high" size={16} /> Run Enrichment</>}
           </button>
         </div>
-
-        {enrichMode === 'force_all' && (
-          <div style={{ fontSize: '0.7rem', color: '#d97706', background: '#fffbeb', padding: '6px 10px', borderRadius: 6, border: '1px solid #fde68a', marginBottom: 10 }}>
-            ⚠️ Force mode <strong>overwrites existing emails & phones</strong> with freshly scraped data.
-          </div>
-        )}
-
-        <ResultBanner result={enrichResult} successMsg={r => `✓ ${r.enriched}/${r.total} updated — 📧 ${r.emails_found} emails · 📞 ${r.phones_found} phones · ❌ ${r.failed} failed`} />
-
-        {/* Change log */}
+        <ResultBanner result={enrichResult} successMsg={r => `✓ ${r.enriched}/${r.total} updated — 📧 ${r.emails_found} emails · 📞 ${r.phones_found} phones`} />
         {enrichResult?.ok && enrichResult.changes?.length > 0 && (
-          <details style={{ marginTop: 10, fontSize: '0.72rem' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#1e40af' }}>📋 View {enrichResult.changes.length} changes</summary>
-            <div style={{ maxHeight: 250, overflow: 'auto', marginTop: 6 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem' }}>
-                <thead><tr style={{ borderBottom: '1px solid #dbeafe' }}><th style={{ textAlign: 'left', padding: 4 }}>ID</th><th style={{ textAlign: 'left', padding: 4 }}>Company</th><th style={{ textAlign: 'left', padding: 4 }}>Old Email</th><th style={{ textAlign: 'left', padding: 4 }}>→ New Email</th><th style={{ textAlign: 'left', padding: 4 }}>Source</th></tr></thead>
-                <tbody>
-                  {enrichResult.changes.map(c => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid #eff6ff' }}>
-                      <td style={{ padding: 4, color: '#6b7280' }}>#{c.id}</td>
-                      <td style={{ padding: 4 }}>{c.company?.slice(0, 22)}</td>
-                      <td style={{ padding: 4, color: '#dc2626', fontFamily: 'monospace', fontSize: '0.68rem', textDecoration: 'line-through' }}>{c.old_email}</td>
-                      <td style={{ padding: 4, color: '#166534', fontFamily: 'monospace', fontSize: '0.68rem', fontWeight: 600 }}>{c.new_email}</td>
-                      <td style={{ padding: 4, color: '#6b7280' }}>{c.sources?.join(', ')}</td>
-                    </tr>
-                  ))}
-                </tbody>
+          <details style={{ marginTop: 8, fontSize: '0.7rem' }}><summary style={{ cursor: 'pointer', fontWeight: 600, color: '#1e40af' }}>📋 {enrichResult.changes.length} changes</summary>
+            <div style={{ maxHeight: 200, overflow: 'auto', marginTop: 4 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.68rem' }}>
+                <thead><tr style={{ borderBottom: '1px solid #dbeafe' }}><th style={{ textAlign: 'left', padding: 3 }}>Company</th><th style={{ textAlign: 'left', padding: 3 }}>Old</th><th style={{ textAlign: 'left', padding: 3 }}>→ New</th><th style={{ textAlign: 'left', padding: 3 }}>Via</th></tr></thead>
+                <tbody>{enrichResult.changes.map(c => (<tr key={c.id} style={{ borderBottom: '1px solid #eff6ff' }}><td style={{ padding: 3 }}>{c.company?.slice(0, 20)}</td><td style={{ padding: 3, color: '#dc2626', fontFamily: 'monospace', textDecoration: 'line-through', fontSize: '0.66rem' }}>{c.old_email}</td><td style={{ padding: 3, color: '#166534', fontFamily: 'monospace', fontWeight: 600, fontSize: '0.66rem' }}>{c.new_email}</td><td style={{ padding: 3, color: '#6b7280' }}>{c.sources?.join(', ')}</td></tr>))}</tbody>
               </table>
             </div>
           </details>
         )}
       </div>
 
-      {/* ═══ JOB HISTORY ═══ */}
+      {/* ═══ HISTORY ═══ */}
       <div className="card">
-        <h3 style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: 14 }}>History</h3>
+        <h3 style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: 12 }}>📊 History & Reports</h3>
         {loadingJobs ? <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)' }}>Loading...</div> : jobs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}><MI name="history" size={32} /><p style={{ marginTop: 6, fontSize: '0.78rem' }}>No jobs yet</p></div>
+          <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.78rem' }}><MI name="history" size={28} /><p>No jobs yet</p></div>
         ) : (
-          <div className="leads-table-wrap"><table className="leads-table"><thead><tr><th>Source</th><th>Details</th><th>Status</th><th>Found</th><th>Added</th><th>Skip</th><th>Started</th></tr></thead><tbody>
-            {jobs.map(j => (
-              <tr key={j.id} className="leads-row">
-                <td style={{ fontWeight: 600, fontSize: '0.78rem', whiteSpace: 'nowrap' }}>{srcIcon[j.source] || '📊'} {srcLabel[j.source] || j.source}</td>
-                <td style={{ fontSize: '0.72rem', color: '#6b7280', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.query || '—'}</td>
-                <td><span style={{ padding: '2px 8px', borderRadius: 16, fontSize: '0.68rem', fontWeight: 600, background: j.status === 'completed' ? '#dcfce7' : j.status === 'failed' ? '#fee2e2' : '#dbeafe', color: j.status === 'completed' ? '#166534' : j.status === 'failed' ? '#991b1b' : '#1e40af' }}>{j.status}</span></td>
-                <td style={{ textAlign: 'center', fontWeight: 600 }}>{j.leads_found ?? 0}</td>
-                <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600 }}>{j.leads_added ?? 0}</td>
-                <td style={{ textAlign: 'center', color: '#f59e0b' }}>{j.leads_skipped ?? 0}</td>
-                <td style={{ fontSize: '0.7rem', color: '#9ca3af' }}>{j.started_at ? new Date(j.started_at).toLocaleString() : '—'}</td>
-              </tr>
-            ))}
+          <div className="leads-table-wrap"><table className="leads-table"><thead><tr><th>Source</th><th>Details</th><th>Status</th><th>Found</th><th>Added</th><th>Skip</th><th>Started</th><th>Duration</th></tr></thead><tbody>
+            {jobs.map(j => {
+              const duration = j.started_at && j.completed_at ? Math.round((new Date(j.completed_at) - new Date(j.started_at)) / 1000) : null;
+              return (
+                <tr key={j.id} className="leads-row">
+                  <td style={{ fontWeight: 600, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{srcIcon[j.source] || '📊'} {srcLabel[j.source] || j.source}</td>
+                  <td style={{ fontSize: '0.7rem', color: '#6b7280', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={j.query}>{j.query || '—'}</td>
+                  <td><span style={{ padding: '2px 8px', borderRadius: 16, fontSize: '0.66rem', fontWeight: 600, background: j.status === 'completed' ? '#dcfce7' : j.status === 'failed' ? '#fee2e2' : '#dbeafe', color: j.status === 'completed' ? '#166534' : j.status === 'failed' ? '#991b1b' : '#1e40af' }}>{j.status}</span></td>
+                  <td style={{ textAlign: 'center', fontWeight: 600 }}>{j.leads_found ?? 0}</td>
+                  <td style={{ textAlign: 'center', color: '#10b981', fontWeight: 600 }}>{j.leads_added ?? 0}</td>
+                  <td style={{ textAlign: 'center', color: '#f59e0b' }}>{j.leads_skipped ?? 0}</td>
+                  <td style={{ fontSize: '0.68rem', color: '#9ca3af' }}>{j.started_at ? new Date(j.started_at).toLocaleString() : '—'}</td>
+                  <td style={{ fontSize: '0.68rem', color: '#9ca3af' }}>{duration != null ? `${duration}s` : '—'}</td>
+                </tr>
+              );
+            })}
           </tbody></table></div>
+        )}
+        {jobs.length > 0 && (
+          <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 8, background: '#f9fafb', border: '1px solid #e5e7eb', fontSize: '0.72rem', color: '#6b7280' }}>
+            <strong>Summary:</strong> {jobs.filter(j => j.status === 'completed').length} completed, {jobs.filter(j => j.status === 'failed').length} failed, {jobs.reduce((s, j) => s + (j.leads_added || 0), 0)} total leads added
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ─── Small Components ────────────────────────────────────────
-function SectionTitle({ color, title }) {
-  return <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} /><span style={{ fontSize: '0.9rem', fontWeight: 700 }}>{title}</span></div>;
-}
-function Field({ label, children }) {
-  return <div><label className="scraper-label">{label}</label>{children}</div>;
-}
-function Chip({ label, active, onClick }) {
-  return <button onClick={onClick} style={{ padding: '3px 10px', borderRadius: 16, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, background: active ? 'var(--primary)' : 'transparent', color: active ? '#fff' : 'var(--text-muted)', transition: 'all 0.15s' }}>{label}</button>;
-}
-function StatCard({ value, label, color, bg, border }) {
-  return <div style={{ padding: '6px 14px', borderRadius: 8, background: bg, border: `1px solid ${border}`, textAlign: 'center', minWidth: 70 }}><div style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{value ?? 0}</div><div style={{ fontSize: '0.65rem', color }}>{label}</div></div>;
-}
-function MiniStat({ label, value, color }) {
-  return <span style={{ fontSize: '0.75rem', fontWeight: 600, color }}>{label}: {value ?? 0}</span>;
-}
-function ResultBanner({ result, successMsg }) {
-  if (!result) return null;
-  return <div style={{ marginTop: 10, fontSize: '0.8rem', padding: '8px 14px', borderRadius: 8, background: result.ok ? '#f0fdf4' : '#fef2f2', color: result.ok ? '#166534' : '#dc2626', border: `1px solid ${result.ok ? '#bbf7d0' : '#fecaca'}` }}>
-    {result.ok ? successMsg(result) : `✗ ${result.error}`}
-  </div>;
-}
+// ─── Components ──────────────────────────────────────────────
+function SectionTitle({ color, title }) { return <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><span style={{ width: 10, height: 10, borderRadius: '50%', background: color }} /><span style={{ fontSize: '0.88rem', fontWeight: 700 }}>{title}</span></div>; }
+function Field({ label, children }) { return <div><label className="scraper-label">{label}</label>{children}</div>; }
+function Chip({ label, active, onClick }) { return <button onClick={onClick} style={{ padding: '3px 10px', borderRadius: 16, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 600, background: active ? 'var(--primary)' : 'transparent', color: active ? '#fff' : 'var(--text-muted)' }}>{label}</button>; }
+function StatCard({ value, label, color, bg, border }) { return <div style={{ padding: '6px 14px', borderRadius: 8, background: bg, border: `1px solid ${border}`, textAlign: 'center', minWidth: 70 }}><div style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{value ?? 0}</div><div style={{ fontSize: '0.64rem', color }}>{label}</div></div>; }
+function MiniStat({ label, value, color }) { return <span style={{ fontSize: '0.73rem', fontWeight: 600, color }}>{label}: {value ?? 0}</span>; }
+function ResultBanner({ result, successMsg }) { if (!result) return null; return <div style={{ marginTop: 8, fontSize: '0.78rem', padding: '8px 12px', borderRadius: 8, background: result.ok ? '#f0fdf4' : '#fef2f2', color: result.ok ? '#166534' : '#dc2626', border: `1px solid ${result.ok ? '#bbf7d0' : '#fecaca'}` }}>{result.ok ? successMsg(result) : `✗ ${result.error}`}</div>; }
