@@ -103,44 +103,87 @@ export default function LeadScraperPage() {
     setScraping(false);
   }
 
-  // ─── Enrich Handler (accepts direct params to avoid state timing issues) ───
+  // ─── Enrich Handler — BATCHED (100 leads per request to avoid 504 timeout) ───
   async function handleEnrich(overrideMode, overrideMax) {
     const mode = overrideMode || enrichMode;
-    const max = overrideMax || enrichMaxLeads;
+    const totalToProcess = overrideMax || enrichMaxLeads;
+    const BATCH_SIZE = 100;
 
     setEnriching(true); setEnrichResult(null);
-    addLog(`🔄 Starting enrichment (mode: ${mode}, max: ${max})...`, 'start');
-    addLog('📡 Fallback chain: Website crawling → 2GIS → hh.ru → Email guessing', 'info');
-    addLog('⏳ Crawling company websites for real contacts... (this takes 1-5 minutes)', 'wait');
 
-    try {
-      const body = { mode, maxLeads: max };
-      if (rangeFrom && rangeTo) { body.rangeFrom = parseInt(rangeFrom); body.rangeTo = parseInt(rangeTo); addLog(`📍 Range: IDs ${rangeFrom} to ${rangeTo}`, 'info'); }
+    // Determine ID range
+    const fromId = parseInt(rangeFrom) || enrichStats?.min_id || 1;
+    const toId = parseInt(rangeTo) || enrichStats?.max_id || 9999;
+    const totalRange = toId - fromId + 1;
+    const totalBatches = Math.ceil(Math.min(totalToProcess, totalRange) / BATCH_SIZE);
 
-      const res = await fetch('/api/leads/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    addLog(`🔄 Starting enrichment (mode: ${mode})`, 'start');
+    addLog(`📊 Processing ${Math.min(totalToProcess, totalRange)} leads in ${totalBatches} batch${totalBatches > 1 ? 'es' : ''} of ${BATCH_SIZE}`, 'info');
+    addLog('📡 Fallback: Website → 2GIS → hh.ru → Email guessing', 'info');
 
-      if (!res.ok) {
-        const text = await res.text();
-        let errMsg;
-        try { errMsg = JSON.parse(text).error; } catch { errMsg = `Server error (${res.status})`; }
-        setEnrichResult({ ok: false, error: errMsg });
-        addLog(`❌ Enrichment failed: ${errMsg}`, 'error');
-      } else {
-        const data = await res.json();
-        setEnrichResult({ ok: true, ...data });
-        setBannerDismissed(true);
-        addLog(`✅ Enrichment complete!`, 'success');
-        addLog(`📧 ${data.emails_found} emails found | 📞 ${data.phones_found} phones found | ✏️ ${data.enriched}/${data.total} updated`, 'success');
-        if (data.changes?.length > 0) {
-          data.changes.slice(0, 5).forEach(c => addLog(`  ${c.company}: ${c.old_email} → ${c.new_email}`, 'change'));
-          if (data.changes.length > 5) addLog(`  ... and ${data.changes.length - 5} more changes`, 'info');
+    // Accumulate results across batches
+    let totalProcessed = 0, totalEnriched = 0, totalEmailsFound = 0, totalPhonesFound = 0, totalFailed = 0;
+    const allChanges = [];
+    let batchErrors = 0;
+
+    for (let batch = 0; batch < totalBatches; batch++) {
+      const batchFrom = fromId + (batch * BATCH_SIZE);
+      const batchTo = Math.min(batchFrom + BATCH_SIZE - 1, toId);
+      const batchNum = batch + 1;
+
+      addLog(`📦 Batch ${batchNum}/${totalBatches}: IDs ${batchFrom}-${batchTo}...`, 'wait');
+
+      try {
+        const body = { mode, maxLeads: BATCH_SIZE, rangeFrom: batchFrom, rangeTo: batchTo };
+        const res = await fetch('/api/leads/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+        if (!res.ok) {
+          const text = await res.text();
+          let errMsg;
+          try { errMsg = JSON.parse(text).error; } catch { errMsg = `Server error (${res.status})`; }
+          addLog(`⚠️ Batch ${batchNum} failed: ${errMsg}`, 'error');
+          batchErrors++;
+          continue; // Skip to next batch, don't stop everything
         }
-        fetchEnrichStats(); fetchJobs(); fetchVerifyStats();
+
+        const data = await res.json();
+        totalProcessed += data.total || 0;
+        totalEnriched += data.enriched || 0;
+        totalEmailsFound += data.emails_found || 0;
+        totalPhonesFound += data.phones_found || 0;
+        totalFailed += data.failed || 0;
+        if (data.changes) allChanges.push(...data.changes);
+
+        addLog(`✅ Batch ${batchNum}: ${data.enriched}/${data.total} updated (📧 ${data.emails_found} emails, 📞 ${data.phones_found} phones)`, 'success');
+
+        // Show some changes from this batch
+        if (data.changes?.length > 0) {
+          data.changes.slice(0, 3).forEach(c => addLog(`  ↳ ${c.company}: ${c.old_email} → ${c.new_email}`, 'change'));
+        }
+
+        // Update partial result so user sees progress
+        setEnrichResult({ ok: true, total: totalProcessed, enriched: totalEnriched, emails_found: totalEmailsFound, phones_found: totalPhonesFound, failed: totalFailed, changes: allChanges.slice(0, 50) });
+
+      } catch (e) {
+        addLog(`⚠️ Batch ${batchNum} error: ${e.message}`, 'error');
+        batchErrors++;
       }
-    } catch (e) {
-      setEnrichResult({ ok: false, error: e.message });
-      addLog(`❌ Error: ${e.message}`, 'error');
+
+      // Small delay between batches to not overload server
+      if (batch < totalBatches - 1) {
+        addLog('⏳ Pausing 2s before next batch...', 'info');
+        await new Promise(r => setTimeout(r, 2000));
+      }
     }
+
+    // Final summary
+    addLog(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'info');
+    addLog(`🏁 ALL BATCHES COMPLETE`, 'success');
+    addLog(`📊 Total: ${totalEnriched}/${totalProcessed} updated | 📧 ${totalEmailsFound} emails | 📞 ${totalPhonesFound} phones | ❌ ${totalFailed} failed | ⚠️ ${batchErrors} batch errors`, 'success');
+
+    setEnrichResult({ ok: true, total: totalProcessed, enriched: totalEnriched, emails_found: totalEmailsFound, phones_found: totalPhonesFound, failed: totalFailed, changes: allChanges.slice(0, 50) });
+    if (totalEnriched > 0) setBannerDismissed(true);
+    fetchEnrichStats(); fetchJobs(); fetchVerifyStats();
     setEnriching(false);
   }
 
