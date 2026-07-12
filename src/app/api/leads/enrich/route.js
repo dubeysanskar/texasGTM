@@ -75,7 +75,11 @@ export async function POST(request) {
   try {
     for (const lead of leads) {
       try {
-        const result = await enrichLeadContacts(lead, apiKey2GIS, force);
+        // 15s timeout per lead to prevent one slow site from stalling the batch
+        const result = await Promise.race([
+          enrichLeadContacts(lead, apiKey2GIS, force),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout (15s)')), 15000))
+        ]);
 
         const hasNewEmail = result.email && result.email !== lead.email;
         const hasNewPhone = result.phone && result.phone !== lead.phone;
@@ -117,7 +121,7 @@ export async function POST(request) {
         failed++;
       }
 
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 50));
     }
 
     await query("UPDATE gtm_scrape_jobs SET status = 'completed', leads_found = $1, leads_added = $2, leads_skipped = $3, completed_at = NOW() WHERE id = $4",

@@ -107,7 +107,7 @@ export default function LeadScraperPage() {
   async function handleEnrich(overrideMode, overrideMax) {
     const mode = overrideMode || enrichMode;
     const totalToProcess = overrideMax || enrichMaxLeads;
-    const BATCH_SIZE = 100;
+    const BATCH_SIZE = 10;
 
     setEnriching(true); setEnrichResult(null);
 
