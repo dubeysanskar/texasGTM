@@ -17,20 +17,68 @@
 
 const cheerio = require('cheerio');
 
-// ─── Russian Cities (with English names) ───────────────────
+// ─── Russian Cities (all major 50+ cities, 300K+ population) ───────────────────
 const RUSSIAN_CITIES = [
+  // Tier 1 — Megacities
   { name: 'Москва', nameEn: 'Moscow', key: 'moscow' },
   { name: 'Санкт-Петербург', nameEn: 'Saint Petersburg', key: 'spb' },
+  // Tier 2 — Millionaires (1M+)
   { name: 'Новосибирск', nameEn: 'Novosibirsk', key: 'novosibirsk' },
   { name: 'Екатеринбург', nameEn: 'Yekaterinburg', key: 'yekaterinburg' },
   { name: 'Казань', nameEn: 'Kazan', key: 'kazan' },
-  { name: 'Челябинск', nameEn: 'Chelyabinsk', key: 'chelyabinsk' },
   { name: 'Нижний Новгород', nameEn: 'Nizhny Novgorod', key: 'nn' },
+  { name: 'Челябинск', nameEn: 'Chelyabinsk', key: 'chelyabinsk' },
   { name: 'Самара', nameEn: 'Samara', key: 'samara' },
-  { name: 'Красноярск', nameEn: 'Krasnoyarsk', key: 'krasnoyarsk' },
-  { name: 'Уфа', nameEn: 'Ufa', key: 'ufa' },
+  { name: 'Омск', nameEn: 'Omsk', key: 'omsk' },
   { name: 'Ростов-на-Дону', nameEn: 'Rostov-on-Don', key: 'rostov' },
+  { name: 'Уфа', nameEn: 'Ufa', key: 'ufa' },
+  { name: 'Красноярск', nameEn: 'Krasnoyarsk', key: 'krasnoyarsk' },
+  { name: 'Воронеж', nameEn: 'Voronezh', key: 'voronezh' },
+  { name: 'Пермь', nameEn: 'Perm', key: 'perm' },
+  { name: 'Волгоград', nameEn: 'Volgograd', key: 'volgograd' },
+  // Tier 3 — Large (500K–1M)
   { name: 'Краснодар', nameEn: 'Krasnodar', key: 'krasnodar' },
+  { name: 'Саратов', nameEn: 'Saratov', key: 'saratov' },
+  { name: 'Тюмень', nameEn: 'Tyumen', key: 'tyumen' },
+  { name: 'Тольятти', nameEn: 'Tolyatti', key: 'tolyatti' },
+  { name: 'Ижевск', nameEn: 'Izhevsk', key: 'izhevsk' },
+  { name: 'Барнаул', nameEn: 'Barnaul', key: 'barnaul' },
+  { name: 'Ульяновск', nameEn: 'Ulyanovsk', key: 'ulyanovsk' },
+  { name: 'Иркутск', nameEn: 'Irkutsk', key: 'irkutsk' },
+  { name: 'Хабаровск', nameEn: 'Khabarovsk', key: 'khabarovsk' },
+  { name: 'Ярославль', nameEn: 'Yaroslavl', key: 'yaroslavl' },
+  { name: 'Владивосток', nameEn: 'Vladivostok', key: 'vladivostok' },
+  { name: 'Махачкала', nameEn: 'Makhachkala', key: 'makhachkala' },
+  { name: 'Томск', nameEn: 'Tomsk', key: 'tomsk' },
+  { name: 'Оренбург', nameEn: 'Orenburg', key: 'orenburg' },
+  { name: 'Кемерово', nameEn: 'Kemerovo', key: 'kemerovo' },
+  { name: 'Новокузнецк', nameEn: 'Novokuznetsk', key: 'novokuznetsk' },
+  { name: 'Рязань', nameEn: 'Ryazan', key: 'ryazan' },
+  { name: 'Набережные Челны', nameEn: 'Naberezhnye Chelny', key: 'chelny' },
+  { name: 'Астрахань', nameEn: 'Astrakhan', key: 'astrakhan' },
+  { name: 'Пенза', nameEn: 'Penza', key: 'penza' },
+  { name: 'Киров', nameEn: 'Kirov', key: 'kirov' },
+  { name: 'Липецк', nameEn: 'Lipetsk', key: 'lipetsk' },
+  // Tier 4 — Medium (300K–500K)
+  { name: 'Калининград', nameEn: 'Kaliningrad', key: 'kaliningrad' },
+  { name: 'Балашиха', nameEn: 'Balashikha', key: 'balashikha' },
+  { name: 'Курск', nameEn: 'Kursk', key: 'kursk' },
+  { name: 'Тула', nameEn: 'Tula', key: 'tula' },
+  { name: 'Сочи', nameEn: 'Sochi', key: 'sochi' },
+  { name: 'Ставрополь', nameEn: 'Stavropol', key: 'stavropol' },
+  { name: 'Улан-Удэ', nameEn: 'Ulan-Ude', key: 'ulanude' },
+  { name: 'Тверь', nameEn: 'Tver', key: 'tver' },
+  { name: 'Магнитогорск', nameEn: 'Magnitogorsk', key: 'magnitogorsk' },
+  { name: 'Брянск', nameEn: 'Bryansk', key: 'bryansk' },
+  { name: 'Иваново', nameEn: 'Ivanovo', key: 'ivanovo' },
+  { name: 'Белгород', nameEn: 'Belgorod', key: 'belgorod' },
+  { name: 'Сургут', nameEn: 'Surgut', key: 'surgut' },
+  { name: 'Владимир', nameEn: 'Vladimir', key: 'vladimir' },
+  { name: 'Чита', nameEn: 'Chita', key: 'chita' },
+  { name: 'Архангельск', nameEn: 'Arkhangelsk', key: 'arkhangelsk' },
+  { name: 'Нижневартовск', nameEn: 'Nizhnevartovsk', key: 'nizhnevartovsk' },
+  { name: 'Смоленск', nameEn: 'Smolensk', key: 'smolensk' },
+  { name: 'Мурманск', nameEn: 'Murmansk', key: 'murmansk' },
 ];
 
 // ─── Industry Keywords (Russian) ────────────────────────────
