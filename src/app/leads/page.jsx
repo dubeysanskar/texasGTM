@@ -130,7 +130,7 @@ export default function LeadsPage() {
 
   // Excel-like cell styles
   const TH = { padding:'8px 10px', textAlign:'left', fontSize:'0.7rem', fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.3px', borderRight:'1px solid #d1d5db', borderBottom:'2px solid #9ca3af', whiteSpace:'nowrap', userSelect:'none', background:'#f3f4f6' };
-  const TD = { padding:'5px 8px', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', fontSize:'0.74rem', color:'#1f2937', userSelect:'text', cursor:'cell', verticalAlign:'top', lineHeight:1.5 };
+  const TD = { padding:'5px 8px', borderRight:'1px solid #e5e7eb', borderBottom:'1px solid #e5e7eb', fontSize:'0.74rem', color:'#1f2937', userSelect:'text', cursor:'cell', verticalAlign:'top', lineHeight:1.5, wordBreak:'break-word', overflowWrap:'break-word', whiteSpace:'normal' };
   const PB = { padding:'5px 10px', border:'1px solid var(--border)', borderRadius:6, background:'#fff', cursor:'pointer', fontSize:'0.72rem', color:'#374151' };
   const BB = { fontSize:'0.72rem', padding:'5px 12px', borderRadius:6, border:'1px solid #93c5fd', background:'#fff', cursor:'pointer', color:'#1e40af', fontWeight:600, display:'flex', alignItems:'center', gap:4 };
 
@@ -264,28 +264,28 @@ export default function LeadsPage() {
         <div style={{ textAlign:'center', padding:60, color:'var(--text-muted)' }}><MI name="groups" size={40}/><p style={{ marginTop:8 }}>No leads found</p></div>
       ) : (
         <div style={{ overflowX:'auto', borderRadius:10, border:'1px solid var(--border)' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.76rem' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'0.76rem', tableLayout:'fixed' }}>
             <thead>
               <tr style={{ background:'#f8fafc', borderBottom:'2px solid var(--border)' }}>
                 <th style={{ padding:'10px 8px', width:36, textAlign:'center' }}>
                   <input type="checkbox" checked={selected.size === leads.length && leads.length > 0} onChange={toggleSelectAll} style={{ cursor:'pointer' }}/>
                 </th>
-                <th style={TH}>#</th>
-                <th style={{...TH, minWidth:160}}>Company</th>
-                <th style={{...TH, minWidth:100}}>Industry</th>
-                <th style={{...TH, minWidth:100}}>City/Region</th>
-                <th style={TH}>Size</th>
-                <th style={{...TH, minWidth:140}}>Why They Need</th>
-                <th style={{...TH, minWidth:110}}>Decision Maker</th>
-                <th style={{...TH, minWidth:120}}>Where to Find</th>
-                <th style={TH}>Contact Method</th>
-                <th style={TH}>Phone</th>
-                <th style={{...TH, minWidth:120}}>Email</th>
-                <th style={{...TH, minWidth:100}}>Priority</th>
-                <th style={{...TH, minWidth:140}}>Status</th>
-                <th style={{...TH, minWidth:140}}>Notes</th>
-                <th style={{...TH, minWidth:180}}>Template Used</th>
-                <th style={{width:40}}></th>
+                <th style={{...TH, width:40}}>#</th>
+                <th style={{...TH, width:'12%'}}>Company</th>
+                <th style={{...TH, width:'7%'}}>Industry</th>
+                <th style={{...TH, width:'7%'}}>City/Region</th>
+                <th style={{...TH, width:'4%'}}>Size</th>
+                <th style={{...TH, width:'10%', whiteSpace:'normal'}}>Why They Need</th>
+                <th style={{...TH, width:'7%', whiteSpace:'normal'}}>Decision Maker</th>
+                <th style={{...TH, width:'10%', whiteSpace:'normal'}}>Where to Find</th>
+                <th style={{...TH, width:'6%', whiteSpace:'normal'}}>Contact</th>
+                <th style={{...TH, width:'7%'}}>Phone</th>
+                <th style={{...TH, width:'9%'}}>Email</th>
+                <th style={{...TH, width:'5%'}}>Priority</th>
+                <th style={{...TH, width:'8%'}}>Status</th>
+                <th style={{...TH, width:'8%'}}>Notes</th>
+                <th style={{...TH, width:'10%', whiteSpace:'normal'}}>Template Used</th>
+                <th style={{width:30}}></th>
               </tr>
             </thead>
             <tbody>
@@ -300,18 +300,18 @@ export default function LeadsPage() {
                     </td>
                     <td tabIndex={0} style={{...TD, fontFamily:'monospace', fontSize:'0.68rem', color:'#9ca3af', borderRight:'1px solid #e5e7eb'}}>{l.id}</td>
                     <td tabIndex={0} style={{...TD}}>
-                      <div style={{ fontWeight:600, fontSize:'0.78rem', color:'var(--text)' }}>{l.company_name}</div>
-                      {l.domain && <div style={{ fontSize:'0.64rem', color:'#9ca3af', marginTop:1 }}>{l.domain}</div>}
+                      <div style={{ fontWeight:600, fontSize:'0.78rem', color:'var(--text)', wordBreak:'break-word' }}>{l.company_name}</div>
+                      {l.domain && <div style={{ fontSize:'0.64rem', color:'#9ca3af', marginTop:1, wordBreak:'break-all' }}>{l.domain}</div>}
                     </td>
                     <td tabIndex={0} style={TD}>{SL[l.sector]||l.sector||'—'}</td>
                     <td tabIndex={0} style={TD}>{[l.city,l.region].filter(Boolean).join(', ')||'—'}</td>
                     <td tabIndex={0} style={TD}>{l.company_size||'—'}</td>
-                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem', maxWidth:180, whiteSpace:'normal', lineHeight:1.4}}>{l.pain_point||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem', lineHeight:1.4}}>{l.pain_point||'—'}</td>
                     <td tabIndex={0} style={TD}>{l.decision_maker_title||'—'}</td>
-                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem', maxWidth:160, whiteSpace:'normal', lineHeight:1.4}}>{l.find_instructions||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.68rem', lineHeight:1.4}}>{l.find_instructions||'—'}</td>
                     <td tabIndex={0} style={TD}>{l.contact_method||'—'}</td>
-                    <td tabIndex={0} style={{...TD, fontFamily:'monospace', fontSize:'0.68rem'}}>{l.phone||'—'}</td>
-                    <td tabIndex={0} style={{...TD, fontSize:'0.7rem'}}>{l.email ? <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a> : '—'}</td>
+                    <td tabIndex={0} style={{...TD, fontFamily:'monospace', fontSize:'0.66rem', wordBreak:'break-all'}}>{l.phone||'—'}</td>
+                    <td tabIndex={0} style={{...TD, fontSize:'0.68rem', wordBreak:'break-all'}}>{l.email ? <a href={`mailto:${l.email}`} style={{color:'#2563eb'}}>{l.email}</a> : '—'}</td>
                     <td tabIndex={0} style={{...TD, textAlign:'center'}}>
                       <span style={{ padding:'3px 10px', borderRadius:20, fontSize:'0.68rem', fontWeight:700, background:pc.bg, color:pc.text, whiteSpace:'nowrap' }}>{pc.label}</span>
                     </td>
