@@ -55,6 +55,7 @@ export default function LeadsPage() {
   const [bulkTplId, setBulkTplId] = useState('');
   const [bulkTplSearch, setBulkTplSearch] = useState('');
   const [showBulkTpl, setShowBulkTpl] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   useEffect(() => { if (!authLoading && !user) router.push('/'); }, [user, authLoading, router]);
 
@@ -149,6 +150,7 @@ export default function LeadsPage() {
         </div>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
           <button onClick={() => setShowBulkLookup(!showBulkLookup)} className="btn btn-ghost" style={{ fontSize:'0.75rem' }}><MI name="search" size={14}/> Bulk Lookup</button>
+          <button onClick={() => setShowUploadModal(true)} className="btn btn-ghost" style={{ fontSize:'0.75rem', border:'1px solid #10b981', color:'#10b981' }}><MI name="upload_file" size={14}/> Bulk Upload</button>
           <button onClick={() => setShowAddModal(true)} className="btn btn-primary" style={{ fontSize:'0.75rem' }}><MI name="add" size={14}/> Add Lead</button>
           <button onClick={handleExport} disabled={exporting} className="btn btn-success" style={{ fontSize:'0.75rem' }}><MI name="download" size={14}/> Export</button>
         </div>
@@ -358,6 +360,7 @@ export default function LeadsPage() {
       )}
 
       {showAddModal && <AddModal onClose={() => setShowAddModal(false)} onDone={() => { fetchLeads(); fetchStats(); setShowAddModal(false); }} />}
+      {showUploadModal && <BulkUploadModal onClose={() => setShowUploadModal(false)} projectId={projectId} onImportDone={() => { fetchLeads(); fetchStats(); }} />}
     </div>
   );
 }
@@ -448,6 +451,314 @@ function TemplateSelector({ leadId, currentId, templates, onChange, tplSearch, s
           </div>
         ))}
         {filtered.length === 0 && <div style={{ padding:'10px', textAlign:'center', fontSize:'0.7rem', color:'#9ca3af' }}>No templates found</div>}
+      </div>
+    </div>
+  );
+}
+
+function BulkUploadModal({ onClose, projectId, onImportDone }) {
+  const [tab, setTab] = useState('upload'); // upload | mapping | status
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [mapping, setMapping] = useState({});
+  const [headers, setHeaders] = useState([]);
+  const [editRows, setEditRows] = useState([]);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [uploadHistory, setUploadHistory] = useState([]);
+
+  const LEAD_FIELDS = ['company_name','email','phone','city','domain','sector','company_size','decision_maker_title','contact_person','pain_point','notes','source_url','priority','status'];
+  const FIELD_LABELS = { company_name:'Company Name', email:'Email', phone:'Phone', city:'City', domain:'Domain', sector:'Sector', company_size:'Company Size', decision_maker_title:'Decision Maker', contact_person:'Contact Person', pain_point:'Pain Point', notes:'Notes', source_url:'Source URL', priority:'Priority', status:'Status' };
+
+  async function handleFile(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['xlsx','xls','csv'].includes(ext)) { alert('Please upload .xlsx, .xls, or .csv file'); return; }
+    setUploading(true); setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (projectId) fd.append('project_id', projectId);
+      if (Object.keys(mapping).length) fd.append('mapping', JSON.stringify(mapping));
+      const r = await fetch('/api/leads/upload', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok) { alert(d.error || 'Upload failed'); setUploading(false); return; }
+      setPreview(d);
+      setHeaders(d.headers || []);
+      setMapping(d.mapping || {});
+      setEditRows(d.preview || []);
+    } catch (e) { alert('Upload error: ' + e.message); }
+    setUploading(false);
+  }
+
+  function handleDrop(e) { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }
+  function handleFileInput(e) { handleFile(e.target.files[0]); }
+
+  function updateCell(rowIdx, field, value) {
+    setEditRows(rows => {
+      const updated = [...rows];
+      updated[rowIdx] = { ...updated[rowIdx], [field]: value };
+      // Re-validate
+      const errors = [];
+      const row = updated[rowIdx];
+      if (!row.company_name || row.company_name.trim().length < 2) errors.push({ field: 'company_name', msg: 'Required' });
+      if (row.email && !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(row.email)) errors.push({ field: 'email', msg: 'Invalid email' });
+      if (row.phone && !/^[+\d\s\-()]{6,20}$/.test(row.phone)) errors.push({ field: 'phone', msg: 'Invalid phone' });
+      if (row.priority && !['HOT','HIGH','MEDIUM','PARTNER'].includes(row.priority.toUpperCase())) errors.push({ field: 'priority', msg: 'Invalid' });
+      if (row.status && !['not_contacted','touch_1','touch_2','touch_3','email_sent','call_made','replied','meeting_booked','proposal_sent','negotiating','contract_signed','not_interested','follow_up_later'].includes(row.status.toLowerCase())) errors.push({ field: 'status', msg: 'Invalid' });
+      updated[rowIdx]._errors = errors;
+      updated[rowIdx]._hasErrors = errors.length > 0;
+      return updated;
+    });
+  }
+
+  async function handleImport() {
+    setImporting(true);
+    try {
+      const r = await fetch('/api/leads/upload', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: editRows, project_id: projectId, skipDuplicates: true }),
+      });
+      const d = await r.json();
+      setImportResult(d);
+      if (d.added > 0) onImportDone();
+    } catch (e) { alert('Import error: ' + e.message); }
+    setImporting(false);
+  }
+
+  function handleMappingChange(header, field) {
+    setMapping(m => ({ ...m, [header]: field || undefined }));
+  }
+
+  async function downloadTemplate() {
+    const r = await fetch('/api/leads/upload/template');
+    const b = await r.blob();
+    const u = URL.createObjectURL(b);
+    const a = document.createElement('a'); a.href = u; a.download = 'lead_upload_template.xlsx'; a.click();
+    URL.revokeObjectURL(u);
+  }
+
+  const errorCount = editRows.filter(r => r._hasErrors && !r._isDuplicate).length;
+  const dupCount = editRows.filter(r => r._isDuplicate).length;
+  const cleanCount = editRows.filter(r => !r._hasErrors).length;
+
+  const tabStyle = (t) => ({ padding: '8px 16px', border: 'none', borderBottom: tab === t ? '2px solid #3b82f6' : '2px solid transparent', background: 'none', color: tab === t ? '#3b82f6' : '#6b7280', fontWeight: tab === t ? 700 : 500, fontSize: '0.8rem', cursor: 'pointer' });
+
+  return (
+    <div className="leads-modal-overlay" onClick={onClose}>
+      <div className="leads-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 1100, width: '95vw', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 0, padding: '0 0 10px' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}><MI name="upload_file" size={22} /> Bulk Lead Upload</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
+          <button onClick={() => setTab('upload')} style={tabStyle('upload')}><MI name="upload_file" size={14} /> Upload</button>
+          <button onClick={() => setTab('mapping')} style={tabStyle('mapping')}><MI name="swap_horiz" size={14} /> Template Mapping</button>
+          <button onClick={() => setTab('status')} style={tabStyle('status')}><MI name="history" size={14} /> Status</button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+
+        {/* ═══ UPLOAD TAB ═══ */}
+        {tab === 'upload' && (
+          <div>
+            {/* Download template + Drop zone */}
+            {!preview && (
+              <div>
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                  <button onClick={downloadTemplate} className="btn btn-ghost" style={{ fontSize: '0.78rem', border: '1px solid #3b82f6', color: '#3b82f6' }}>
+                    <MI name="download" size={14} /> Download Template
+                  </button>
+                  <span style={{ fontSize: '0.72rem', color: '#9ca3af', alignSelf: 'center' }}>Excel template with all fields + sample data + field guide</span>
+                </div>
+                <div
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => document.getElementById('bulk-upload-input').click()}
+                  style={{
+                    border: `2px dashed ${dragOver ? '#3b82f6' : '#d1d5db'}`,
+                    borderRadius: 12, padding: '40px 20px', textAlign: 'center',
+                    background: dragOver ? '#eff6ff' : '#fafafa', cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <MI name="cloud_upload" size={48} />
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, marginTop: 8, color: '#374151' }}>
+                    {uploading ? 'Processing...' : 'Drop your Excel/CSV file here'}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 4 }}>or click to browse • .xlsx, .xls, .csv • Max 5,000 rows</div>
+                  <input id="bulk-upload-input" type="file" accept=".xlsx,.xls,.csv" onChange={handleFileInput} style={{ display: 'none' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Preview Table */}
+            {preview && !importResult && (
+              <div>
+                {/* Stats bar */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div style={{ padding: '6px 14px', borderRadius: 8, background: '#eff6ff', color: '#1e40af', fontSize: '0.78rem', fontWeight: 600 }}>📊 Total: {editRows.length}</div>
+                  <div style={{ padding: '6px 14px', borderRadius: 8, background: '#f0fdf4', color: '#15803d', fontSize: '0.78rem', fontWeight: 600 }}>✅ Clean: {cleanCount}</div>
+                  {errorCount > 0 && <div style={{ padding: '6px 14px', borderRadius: 8, background: '#fef2f2', color: '#dc2626', fontSize: '0.78rem', fontWeight: 600 }}>❌ Errors: {errorCount}</div>}
+                  {dupCount > 0 && <div style={{ padding: '6px 14px', borderRadius: 8, background: '#fffbeb', color: '#d97706', fontSize: '0.78rem', fontWeight: 600 }}>⚠️ Duplicates: {dupCount}</div>}
+                  <button onClick={() => { setPreview(null); setEditRows([]); setImportResult(null); }} className="btn btn-ghost" style={{ marginLeft: 'auto', fontSize: '0.72rem' }}>↺ Re-upload</button>
+                </div>
+
+                {/* Table */}
+                <div style={{ overflowX: 'auto', maxHeight: 400, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.72rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f3f4f6', position: 'sticky', top: 0, zIndex: 2 }}>
+                        <th style={{ padding: '6px 8px', textAlign: 'center', borderRight: '1px solid #d1d5db', fontSize: '0.65rem', fontWeight: 700 }}>#</th>
+                        {LEAD_FIELDS.map(f => (
+                          <th key={f} style={{ padding: '6px 8px', textAlign: 'left', borderRight: '1px solid #d1d5db', fontSize: '0.65rem', fontWeight: 700, whiteSpace: 'nowrap', minWidth: f === 'company_name' ? 160 : 100 }}>
+                            {FIELD_LABELS[f]}{f === 'company_name' && ' *'}
+                          </th>
+                        ))}
+                        <th style={{ padding: '6px 8px', fontSize: '0.65rem', fontWeight: 700, minWidth: 120 }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editRows.map((row, idx) => {
+                        const errorFields = new Set((row._errors || []).map(e => e.field));
+                        const rowBg = row._isDuplicate ? '#fffbeb' : row._hasErrors ? '#fef2f2' : '#fff';
+                        return (
+                          <tr key={idx} style={{ background: rowBg }}>
+                            <td style={{ padding: '4px 8px', textAlign: 'center', borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb', color: '#9ca3af', fontSize: '0.65rem' }}>{row._row}</td>
+                            {LEAD_FIELDS.map(f => (
+                              <td key={f} style={{ padding: '2px 4px', borderRight: '1px solid #e5e7eb', borderBottom: '1px solid #e5e7eb' }}>
+                                <input
+                                  value={row[f] || ''}
+                                  onChange={e => updateCell(idx, f, e.target.value)}
+                                  style={{
+                                    width: '100%', border: errorFields.has(f) ? '2px solid #ef4444' : '1px solid transparent',
+                                    borderRadius: 4, padding: '3px 6px', fontSize: '0.72rem',
+                                    background: errorFields.has(f) ? '#fef2f2' : 'transparent',
+                                    outline: 'none',
+                                  }}
+                                  onFocus={e => e.target.style.borderColor = '#3b82f6'}
+                                  onBlur={e => e.target.style.borderColor = errorFields.has(f) ? '#ef4444' : 'transparent'}
+                                />
+                              </td>
+                            ))}
+                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #e5e7eb', fontSize: '0.68rem' }}>
+                              {row._isDuplicate && <span style={{ color: '#d97706' }}>⚠️ Duplicate</span>}
+                              {row._hasErrors && !row._isDuplicate && (
+                                <span style={{ color: '#dc2626' }} title={(row._errors || []).map(e => `${e.field}: ${e.msg}`).join('\n')}>
+                                  ❌ {(row._errors || []).map(e => e.msg).join(', ')}
+                                </span>
+                              )}
+                              {!row._hasErrors && !row._isDuplicate && <span style={{ color: '#15803d' }}>✅</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Import button */}
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button onClick={onClose} className="btn btn-ghost">Cancel</button>
+                  <button
+                    onClick={handleImport}
+                    disabled={importing || cleanCount === 0}
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.82rem', padding: '10px 24px' }}
+                  >
+                    {importing ? '⏳ Importing...' : `✅ Import ${cleanCount} Lead${cleanCount !== 1 ? 's' : ''}`}
+                    {dupCount > 0 && ` (skip ${dupCount} dupes)`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Import Result */}
+            {importResult && (
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <MI name="check_circle" size={56} />
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginTop: 12, color: '#15803d' }}>Import Complete!</h3>
+                <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 16 }}>
+                  <div style={{ padding: '10px 20px', borderRadius: 8, background: '#f0fdf4', color: '#15803d', fontWeight: 600 }}>✅ Added: {importResult.added}</div>
+                  <div style={{ padding: '10px 20px', borderRadius: 8, background: '#fffbeb', color: '#d97706', fontWeight: 600 }}>⏭️ Skipped: {importResult.skipped}</div>
+                  {importResult.errors > 0 && <div style={{ padding: '10px 20px', borderRadius: 8, background: '#fef2f2', color: '#dc2626', fontWeight: 600 }}>❌ Errors: {importResult.errors}</div>}
+                </div>
+                <button onClick={onClose} className="btn btn-primary" style={{ marginTop: 20 }}>Done</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ TEMPLATE MAPPING TAB ═══ */}
+        {tab === 'mapping' && (
+          <div>
+            <p style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: 16 }}>
+              Map your file's column names to lead fields. This helps if your file uses different column headers than our template.
+            </p>
+            {headers.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '8px 12px', alignItems: 'center', maxWidth: 600 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.72rem', color: '#6b7280' }}>YOUR COLUMN</div>
+                <div></div>
+                <div style={{ fontWeight: 700, fontSize: '0.72rem', color: '#6b7280' }}>MAPS TO FIELD</div>
+                {headers.map(h => (
+                  <>
+                    <div key={h + '-label'} style={{ padding: '6px 10px', background: '#f3f4f6', borderRadius: 6, fontSize: '0.78rem', fontWeight: 600 }}>{h}</div>
+                    <MI key={h + '-arrow'} name="arrow_forward" size={16} />
+                    <select
+                      key={h + '-select'}
+                      value={mapping[h] || ''}
+                      onChange={e => handleMappingChange(h, e.target.value)}
+                      style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: '0.78rem', background: mapping[h] ? '#eff6ff' : '#fff' }}
+                    >
+                      <option value="">(skip this column)</option>
+                      {LEAD_FIELDS.map(f => <option key={f} value={f}>{FIELD_LABELS[f]}</option>)}
+                    </select>
+                  </>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', fontSize: '0.82rem' }}>
+                <MI name="info" size={32} />
+                <div style={{ marginTop: 8 }}>Upload a file first to see column mappings</div>
+              </div>
+            )}
+            {headers.length > 0 && (
+              <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                <button onClick={() => { setTab('upload'); setPreview(null); }} className="btn btn-primary" style={{ fontSize: '0.78rem' }}>Re-upload with this mapping</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══ STATUS TAB ═══ */}
+        {tab === 'status' && (
+          <div>
+            {importResult ? (
+              <div style={{ padding: '20px', background: '#f0fdf4', borderRadius: 10, border: '1px solid #bbf7d0' }}>
+                <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#15803d', marginBottom: 8 }}>Last Upload</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                  <div style={{ textAlign: 'center' }}><div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#3b82f6' }}>{importResult.total}</div><div style={{ fontSize: '0.68rem', color: '#6b7280' }}>Total</div></div>
+                  <div style={{ textAlign: 'center' }}><div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#15803d' }}>{importResult.added}</div><div style={{ fontSize: '0.68rem', color: '#6b7280' }}>Added</div></div>
+                  <div style={{ textAlign: 'center' }}><div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#d97706' }}>{importResult.skipped}</div><div style={{ fontSize: '0.68rem', color: '#6b7280' }}>Skipped</div></div>
+                  <div style={{ textAlign: 'center' }}><div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#dc2626' }}>{importResult.errors}</div><div style={{ fontSize: '0.68rem', color: '#6b7280' }}>Errors</div></div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', fontSize: '0.82rem' }}>
+                <MI name="history" size={32} />
+                <div style={{ marginTop: 8 }}>No uploads yet in this session</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        </div>
       </div>
     </div>
   );
