@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
 const PRESET_HH = ['рабочий на производство', 'сварщик завод', 'грузчик склад', 'разнорабочий строительство'];
-const PRESET_WEB = ['производственное предприятие москва контакты email', 'строительная компания россия email телефон', 'завод набор персонала контакты'];
+const PRESET_WEB_RU = ['производственное предприятие москва контакты email', 'строительная компания россия email телефон', 'завод набор персонала контакты'];
+const PRESET_WEB_GCC = ['construction company Dubai contact email', 'logistics company UAE email phone', 'manufacturing factory Saudi Arabia hiring', 'cleaning services company Riyadh email', 'hotel hospitality group Abu Dhabi contact'];
+const PRESET_HH_GCC = ['construction worker Dubai', 'warehouse helper UAE', 'driver logistics Riyadh', 'cleaner facility management Qatar'];
 
 export default function LeadScraperPage() {
   const { user, loading: authLoading, isAdmin } = useAuth();
@@ -58,7 +60,7 @@ export default function LeadScraperPage() {
   }
 
   useEffect(() => { if (!authLoading && !user) router.push('/'); if (!authLoading && user && !isAdmin) router.push('/dashboard'); }, [user, authLoading, router, isAdmin]);
-  useEffect(() => { if (user && isAdmin) fetch('/api/leads/scrape?config=1').then(r => r.json()).then(setConfig).catch(() => {}); }, [user, isAdmin]);
+  useEffect(() => { if (user && isAdmin) fetch(`/api/leads/scrape?config=1${projectId ? '&project_id=' + projectId : ''}`).then(r => r.json()).then(setConfig).catch(() => {}); }, [user, isAdmin, projectId]);
 
   const fetchJobs = useCallback(async () => { try { const r = await fetch(`/api/leads/scrape${projectId ? '?project_id=' + projectId : ''}`); if (r.ok) setJobs(await r.json()); } catch {} setLoadingJobs(false); }, [projectId]);
   const fetchEnrichStats = useCallback(async () => { try { const r = await fetch(`/api/leads/enrich${projectId ? '?project_id=' + projectId : ''}`); if (r.ok) { const d = await r.json(); setEnrichStats(d); if (!rangeFrom) setRangeFrom(String(d.min_id || 1)); if (!rangeTo) setRangeTo(String(d.max_id || 100)); } } catch {} }, [projectId]);
@@ -278,8 +280,8 @@ export default function LeadScraperPage() {
               <option value="2gis">🗺️ 2GIS (Business Directory)</option>
               <option value="google_dork">🔍 Google Dorking (Advanced)</option>
               <option value="web_search">🌐 Web Search (Crawl Sites)</option>
-              <option value="hh.ru">💼 hh.ru (Job Board)</option>
-              <option value="superjob">📋 SuperJob (Job Board)</option>
+              {config?.region !== 'gcc' && <option value="hh.ru">💼 hh.ru (Job Board)</option>}
+              {config?.region !== 'gcc' && <option value="superjob">📋 SuperJob (Job Board)</option>}
             </select>
           </Field>
           <Field label="Max Leads">
@@ -294,7 +296,7 @@ export default function LeadScraperPage() {
               <label className="scraper-label">Search Query</label>
               <div style={{ display: 'flex', gap: 6 }}>
                 <input value={scrapeQuery} onChange={e => setScrapeQuery(e.target.value)} className="form-input" style={{ flex: 1 }} placeholder="Keywords..." />
-                <select onChange={e => e.target.value && setScrapeQuery(e.target.value)} className="leads-select" style={{ fontSize: '0.7rem', maxWidth: 140 }}><option value="">Presets</option>{(scrapeSource === 'web_search' ? PRESET_WEB : PRESET_HH).map(q => <option key={q} value={q}>{q.slice(0, 28)}…</option>)}</select>
+                <select onChange={e => e.target.value && setScrapeQuery(e.target.value)} className="leads-select" style={{ fontSize: '0.7rem', maxWidth: 140 }}><option value="">Presets</option>{(config?.region === 'gcc' ? (scrapeSource === 'web_search' ? PRESET_WEB_GCC : PRESET_HH_GCC) : (scrapeSource === 'web_search' ? PRESET_WEB_RU : PRESET_HH)).map(q => <option key={q} value={q}>{q.slice(0, 28)}…</option>)}</select>
               </div>
             </div>
           )}
@@ -309,7 +311,7 @@ export default function LeadScraperPage() {
               <Field label="Industry"><input value={dorkIndustry} onChange={e => setDorkIndustry(e.target.value)} className="form-input" style={{ width: 130 }} /></Field>
               {dorkType === 'custom' && <div style={{ flex: 1, minWidth: 250 }}><label className="scraper-label">Custom Dork</label><input value={customDork} onChange={e => setCustomDork(e.target.value)} className="form-input" style={{ width: '100%' }} placeholder='intitle:контакты "строительная" "@" site:.ru' /></div>}
             </div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>💡 <code>site:.ru</code> · <code>intitle:</code> · <code>"@domain.ru"</code> · <code>"exact"</code></div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>💡 {config?.region === 'gcc' ? <><code>site:.ae</code> · <code>site:.sa</code> · <code>site:.qa</code> · <code>intitle:</code> · <code>"@domain"</code></> : <><code>site:.ru</code> · <code>intitle:</code> · <code>"@domain.ru"</code> · <code>"exact"</code></>}</div>
           </div>
         )}
         {scrapeSource === '2gis' && config && (
@@ -317,7 +319,7 @@ export default function LeadScraperPage() {
             <label className="scraper-label">Cities</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 4 }}>
               <Chip label="All" active={selectedCities.includes('all')} onClick={() => toggleCity('all')} />
-              {config.cities.map(c => <Chip key={c.key} label={c.nameEn || c.name} active={selectedCities.includes(c.key)} onClick={() => toggleCity(c.key)} />)}
+              {config.cities.map(c => <Chip key={c.key} label={c.country ? `${c.name} (${c.country})` : (c.nameEn || c.name)} active={selectedCities.includes(c.key)} onClick={() => toggleCity(c.key)} />)}
             </div>
           </div>
         )}

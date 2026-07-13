@@ -114,6 +114,115 @@ const INDUSTRY_OPTIONS = [
   { value: 'agriculture', label: 'Agriculture' },
 ];
 
+// ─── GCC Cities (UAE, Saudi Arabia, Qatar, Kuwait, Oman, Bahrain) ────────
+const GCC_CITIES = [
+  // UAE
+  { name: 'Dubai', nameAr: 'دبي', country: 'UAE', key: 'dubai' },
+  { name: 'Abu Dhabi', nameAr: 'أبو ظبي', country: 'UAE', key: 'abudhabi' },
+  { name: 'Sharjah', nameAr: 'الشارقة', country: 'UAE', key: 'sharjah' },
+  { name: 'Ajman', nameAr: 'عجمان', country: 'UAE', key: 'ajman' },
+  { name: 'Ras Al Khaimah', nameAr: 'رأس الخيمة', country: 'UAE', key: 'rak' },
+  { name: 'Fujairah', nameAr: 'الفجيرة', country: 'UAE', key: 'fujairah' },
+  { name: 'Al Ain', nameAr: 'العين', country: 'UAE', key: 'alain' },
+  // Saudi Arabia
+  { name: 'Riyadh', nameAr: 'الرياض', country: 'KSA', key: 'riyadh' },
+  { name: 'Jeddah', nameAr: 'جدة', country: 'KSA', key: 'jeddah' },
+  { name: 'Dammam', nameAr: 'الدمام', country: 'KSA', key: 'dammam' },
+  { name: 'Makkah', nameAr: 'مكة المكرمة', country: 'KSA', key: 'makkah' },
+  { name: 'Madinah', nameAr: 'المدينة المنورة', country: 'KSA', key: 'madinah' },
+  { name: 'Khobar', nameAr: 'الخبر', country: 'KSA', key: 'khobar' },
+  { name: 'Tabuk', nameAr: 'تبوك', country: 'KSA', key: 'tabuk' },
+  { name: 'NEOM', nameAr: 'نيوم', country: 'KSA', key: 'neom' },
+  { name: 'Jubail', nameAr: 'الجبيل', country: 'KSA', key: 'jubail' },
+  { name: 'Yanbu', nameAr: 'ينبع', country: 'KSA', key: 'yanbu' },
+  // Qatar
+  { name: 'Doha', nameAr: 'الدوحة', country: 'Qatar', key: 'doha' },
+  { name: 'Lusail', nameAr: 'لوسيل', country: 'Qatar', key: 'lusail' },
+  { name: 'Al Wakrah', nameAr: 'الوكرة', country: 'Qatar', key: 'alwakrah' },
+  // Kuwait
+  { name: 'Kuwait City', nameAr: 'مدينة الكويت', country: 'Kuwait', key: 'kuwait' },
+  { name: 'Al Ahmadi', nameAr: 'الأحمدي', country: 'Kuwait', key: 'ahmadi' },
+  { name: 'Hawally', nameAr: 'حولي', country: 'Kuwait', key: 'hawally' },
+  // Oman
+  { name: 'Muscat', nameAr: 'مسقط', country: 'Oman', key: 'muscat' },
+  { name: 'Salalah', nameAr: 'صلالة', country: 'Oman', key: 'salalah' },
+  { name: 'Sohar', nameAr: 'صحار', country: 'Oman', key: 'sohar' },
+  // Bahrain
+  { name: 'Manama', nameAr: 'المنامة', country: 'Bahrain', key: 'manama' },
+  { name: 'Riffa', nameAr: 'الرفاع', country: 'Bahrain', key: 'riffa' },
+];
+
+// ─── GCC Industry Keywords (Arabic + English) ──────────────────
+const GCC_INDUSTRY_KEYWORDS = {
+  construction: ['construction company', 'building contractor', 'civil engineering', 'شركة مقاولات', 'بناء'],
+  oil_gas: ['oil and gas company', 'petroleum', 'energy sector', 'شركة نفط وغاز', 'بترول'],
+  hospitality: ['hotel', 'restaurant', 'hospitality group', 'فندق', 'ضيافة', 'مطعم'],
+  real_estate: ['real estate developer', 'property management', 'عقارات', 'تطوير عقاري'],
+  logistics: ['logistics company', 'freight forwarding', 'shipping', 'شحن', 'لوجستيات', 'نقل'],
+  manufacturing: ['manufacturing company', 'factory', 'industrial', 'مصنع', 'صناعة'],
+  retail: ['retail company', 'supermarket', 'mall', 'تجارة التجزئة', 'سوبرماركت'],
+  healthcare: ['hospital', 'clinic', 'medical center', 'مستشفى', 'عيادة', 'مركز طبي'],
+  it_tech: ['IT company', 'software', 'technology solutions', 'تقنية المعلومات', 'برمجيات'],
+  education: ['school', 'university', 'training center', 'مدرسة', 'جامعة', 'تدريب'],
+  cleaning_maintenance: ['cleaning company', 'facility management', 'maintenance', 'شركة تنظيف', 'صيانة'],
+  trading: ['trading company', 'import export', 'wholesale', 'شركة تجارية', 'استيراد تصدير'],
+  food_processing: ['food manufacturing', 'catering', 'food production', 'تصنيع غذائي', 'تموين'],
+  security: ['security company', 'guard services', 'surveillance', 'شركة أمن', 'حراسة'],
+};
+
+const GCC_INDUSTRY_OPTIONS = [
+  { value: 'all', label: 'All Industries' },
+  { value: 'construction', label: '🏗️ Construction & Contracting' },
+  { value: 'oil_gas', label: '🛢️ Oil & Gas' },
+  { value: 'hospitality', label: '🏨 Hospitality & Hotels' },
+  { value: 'real_estate', label: '🏢 Real Estate & Property' },
+  { value: 'logistics', label: '🚛 Logistics & Shipping' },
+  { value: 'manufacturing', label: '🏭 Manufacturing & Industrial' },
+  { value: 'retail', label: '🛒 Retail & Commerce' },
+  { value: 'healthcare', label: '🏥 Healthcare & Medical' },
+  { value: 'it_tech', label: '💻 IT & Technology' },
+  { value: 'education', label: '📚 Education & Training' },
+  { value: 'cleaning_maintenance', label: '🧹 Cleaning & Facility Mgmt' },
+  { value: 'trading', label: '📦 Trading & Import/Export' },
+  { value: 'food_processing', label: '🍽️ Food & Catering' },
+  { value: 'security', label: '🛡️ Security Services' },
+];
+
+// ─── GCC Dork Templates ───────────────────────────────────────
+const GCC_DORK_TEMPLATES = {
+  companies_with_email: [
+    '"{industry}" "{city}" contact email',
+    '"{industry}" "{city}" "@" phone site:.ae OR site:.sa OR site:.qa',
+    'intitle:contact "{industry}" "{city}"',
+    '"{industry}" "{city}" "managing director" email',
+  ],
+  hiring_companies: [
+    '"{city}" "we are hiring" "{industry}" contact email',
+    '"{city}" "job vacancy" "{industry}" "@"',
+    '"{industry}" "{city}" "careers" "apply" email',
+    '"{industry}" "{city}" "HR" "recruitment" email phone',
+  ],
+  decision_makers: [
+    '"{company}" CEO email',
+    '"{company}" "managing director" contact',
+    '"{company}" "general manager" email phone',
+    '"{company}" linkedin CEO OR director',
+  ],
+  domain_emails: [
+    '"@{domain}"',
+    'site:{domain} contact email phone',
+    'site:{domain} "mailto:"',
+  ],
+};
+
+const GCC_DORK_PRESET_OPTIONS = [
+  { value: 'companies_with_email', label: 'Find GCC Companies with Email' },
+  { value: 'hiring_companies', label: 'Find Companies Hiring Workers' },
+  { value: 'decision_makers', label: 'Find Decision Makers (CEO/GM)' },
+  { value: 'domain_emails', label: 'Find Emails by Domain' },
+  { value: 'custom', label: 'Custom Dork Query' },
+];
+
 // ─── Sector inference from 2GIS rubrics ──────────────────────
 function inferSectorFrom2GIS(rubrics = []) {
   const text = rubrics.map(r => (r.name || '')).join(' ').toLowerCase();
@@ -702,6 +811,13 @@ module.exports = {
   INDUSTRY_OPTIONS,
   DORK_TEMPLATES,
   DORK_PRESET_OPTIONS,
+  // GCC config
+  GCC_CITIES,
+  GCC_INDUSTRY_KEYWORDS,
+  GCC_INDUSTRY_OPTIONS,
+  GCC_DORK_TEMPLATES,
+  GCC_DORK_PRESET_OPTIONS,
+  // Functions
   search2GIS,
   parse2GISItem,
   scrapeWebsiteContacts,

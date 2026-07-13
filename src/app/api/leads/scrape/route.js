@@ -5,6 +5,7 @@ const {
   search2GIS, parse2GISItem, scrapeWebsiteContacts, searchWebForCompanies,
   extractLeadFromWebsite, googleDorkSearch, INDUSTRY_KEYWORDS, RUSSIAN_CITIES,
   INDUSTRY_OPTIONS, DORK_PRESET_OPTIONS,
+  GCC_CITIES, GCC_INDUSTRY_OPTIONS, GCC_INDUSTRY_KEYWORDS, GCC_DORK_PRESET_OPTIONS,
 } = require('@/lib/scraper');
 
 function makeDedupKey(companyName, domain) {
@@ -297,7 +298,24 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url);
   if (searchParams.get('config') === '1') {
+    const pid = searchParams.get('project_id');
+    let region = 'russia';
+    if (pid) {
+      const proj = await queryOne('SELECT name FROM gtm_projects WHERE id = $1', [pid]);
+      if (proj && /arabic|arab|gcc|uae|saudi|gulf|dubai/i.test(proj.name)) region = 'gcc';
+    }
+    if (region === 'gcc') {
+      return NextResponse.json({
+        region: 'gcc',
+        cities: GCC_CITIES,
+        industries: GCC_INDUSTRY_OPTIONS,
+        dorkPresets: GCC_DORK_PRESET_OPTIONS,
+        has2gisKey: !!process.env.TWOGIS_API_KEY,
+        hasSuperjobKey: false,
+      });
+    }
     return NextResponse.json({
+      region: 'russia',
       cities: RUSSIAN_CITIES,
       industries: INDUSTRY_OPTIONS,
       dorkPresets: DORK_PRESET_OPTIONS,
