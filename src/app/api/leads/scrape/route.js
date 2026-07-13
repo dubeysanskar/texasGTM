@@ -6,6 +6,7 @@ const {
   extractLeadFromWebsite, googleDorkSearch, INDUSTRY_KEYWORDS, RUSSIAN_CITIES,
   INDUSTRY_OPTIONS, DORK_PRESET_OPTIONS,
   GCC_CITIES, GCC_INDUSTRY_OPTIONS, GCC_INDUSTRY_KEYWORDS, GCC_DORK_PRESET_OPTIONS,
+  searchGoogleMaps,
 } = require('@/lib/scraper');
 
 function makeDedupKey(companyName, domain) {
@@ -79,6 +80,23 @@ export async function POST(request) {
 
     } else if (source === 'google_dork') {
       leads = await googleDorkSearch(dorkType || 'companies_with_email', dorkVars || {}, customDork || '', maxLeads);
+
+    } else if (source === 'google_maps') {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        await query("UPDATE gtm_scrape_jobs SET status = 'failed', error_message = 'GOOGLE_MAPS_API_KEY not set', completed_at = NOW() WHERE id = $1", [jobId]);
+        return NextResponse.json({ error: 'GOOGLE_MAPS_API_KEY not configured' }, { status: 400 });
+      }
+      // Build search query from industry keywords
+      const industryLabel = (GCC_INDUSTRY_KEYWORDS[industry] || [industry || 'company'])[0];
+      const cityNames = (cities || []).length > 0 
+        ? cities.map(k => { const c = GCC_CITIES.find(c => c.key === k); return c ? c.name : k; })
+        : ['Dubai'];
+      for (const cityName of cityNames) {
+        if (leads.length >= maxLeads) break;
+        const results = await searchGoogleMaps(industryLabel, cityName, apiKey, Math.min(maxLeads - leads.length, 25));
+        leads.push(...results);
+      }
 
     } else {
       await query("UPDATE gtm_scrape_jobs SET status = 'failed', error_message = 'Unknown source', completed_at = NOW() WHERE id = $1", [jobId]);
@@ -310,7 +328,8 @@ export async function GET(request) {
         cities: GCC_CITIES,
         industries: GCC_INDUSTRY_OPTIONS,
         dorkPresets: GCC_DORK_PRESET_OPTIONS,
-        has2gisKey: !!process.env.TWOGIS_API_KEY,
+        hasGoogleMapsKey: !!process.env.GOOGLE_MAPS_API_KEY,
+        has2gisKey: false,
         hasSuperjobKey: false,
       });
     }

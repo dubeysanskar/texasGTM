@@ -75,10 +75,10 @@ export default function LeadScraperPage() {
     addLog(`📋 Max leads: ${maxLeads}`, 'info');
 
     try {
-      const body = { source: scrapeSource, maxLeads };
-      if (scrapeSource === '2gis') {
+      const body = { source: scrapeSource, maxLeads, project_id: projectId };
+      if (scrapeSource === '2gis' || scrapeSource === 'google_maps') {
         body.industry = selectedIndustry; body.cities = selectedCities.includes('all') ? [] : selectedCities;
-        addLog(`🗺️ 2GIS: Industry="${selectedIndustry}", Cities=${selectedCities.join(', ')}`, 'info');
+        addLog(`🗺️ ${scrapeSource === 'google_maps' ? 'Google Maps' : '2GIS'}: Industry="${selectedIndustry}", Cities=${selectedCities.join(', ')}`, 'info');
       } else if (scrapeSource === 'google_dork') {
         body.dorkType = dorkType; body.dorkVars = { city: dorkCity, industry: dorkIndustry }; body.customDork = customDork;
         addLog(`🔍 Dorking: type="${dorkType}", city="${dorkCity}"`, 'info');
@@ -277,7 +277,10 @@ export default function LeadScraperPage() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 14 }}>
           <Field label="Source">
             <select value={scrapeSource} onChange={e => setScrapeSource(e.target.value)} className="leads-select" style={{ width: '100%', minWidth: 180 }}>
-              <option value="2gis">🗺️ 2GIS (Business Directory)</option>
+              {config?.region === 'gcc' 
+                ? <option value="google_maps">🗺️ Google Maps (Business Search)</option>
+                : <option value="2gis">🗺️ 2GIS (Business Directory)</option>
+              }
               <option value="google_dork">🔍 Google Dorking (Advanced)</option>
               <option value="web_search">🌐 Web Search (Crawl Sites)</option>
               {config?.region !== 'gcc' && <option value="hh.ru">💼 hh.ru (Job Board)</option>}
@@ -289,7 +292,7 @@ export default function LeadScraperPage() {
               {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </Field>
-          {scrapeSource === '2gis' && config && <Field label="Industry"><select value={selectedIndustry} onChange={e => setSelectedIndustry(e.target.value)} className="leads-select" style={{ minWidth: 160 }}>{config.industries.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}</select></Field>}
+          {(scrapeSource === '2gis' || scrapeSource === 'google_maps') && config && <Field label="Industry"><select value={selectedIndustry} onChange={e => setSelectedIndustry(e.target.value)} className="leads-select" style={{ minWidth: 160 }}>{config.industries.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}</select></Field>}
           {scrapeSource === 'google_dork' && config && <Field label="Dork Type"><select value={dorkType} onChange={e => setDorkType(e.target.value)} className="leads-select" style={{ minWidth: 200 }}>{config.dorkPresets?.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}</select></Field>}
           {['web_search', 'hh.ru', 'superjob'].includes(scrapeSource) && (
             <div style={{ flex: 1, minWidth: 220 }}>
@@ -314,7 +317,7 @@ export default function LeadScraperPage() {
             <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>💡 {config?.region === 'gcc' ? <><code>site:.ae</code> · <code>site:.sa</code> · <code>site:.qa</code> · <code>intitle:</code> · <code>"@domain"</code></> : <><code>site:.ru</code> · <code>intitle:</code> · <code>"@domain.ru"</code> · <code>"exact"</code></>}</div>
           </div>
         )}
-        {scrapeSource === '2gis' && config && (
+        {(scrapeSource === '2gis' || scrapeSource === 'google_maps') && config && (
           <div>
             <label className="scraper-label">Cities</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 4 }}>

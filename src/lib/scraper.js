@@ -223,6 +223,126 @@ const GCC_DORK_PRESET_OPTIONS = [
   { value: 'custom', label: 'Custom Dork Query' },
 ];
 
+// ─── Google Maps Places API (for GCC scraping) ──────────────
+/**
+ * Search Google Maps for businesses matching query in a city.
+ * Uses Text Search API → then Place Details for contact info.
+ * @param {string} query - e.g. "construction company"
+ * @param {string} city - e.g. "Dubai"
+ * @param {string} apiKey - Google Maps API key
+ * @param {number} maxResults - max results to return
+ * @returns {Array} leads
+ */
+async function searchGoogleMaps(query, city, apiKey, maxResults = 25) {
+  if (!apiKey) throw new Error('Google Maps API key required');
+  const leads = [];
+  const searchQuery = `${query} in ${city}`;
+  
+  let nextPageToken = null;
+  let totalFetched = 0;
+
+  do {
+    const url = new URL('https://maps.googleapis.com/maps/api/place/textsearch/json');
+    url.searchParams.set('query', searchQuery);
+    url.searchParams.set('key', apiKey);
+    if (nextPageToken) url.searchParams.set('pagetoken', nextPageToken);
+
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      console.error('Google Maps error:', data.status, data.error_message);
+      break;
+    }
+
+    const places = data.results || [];
+    for (const place of places) {
+      if (totalFetched >= maxResults) break;
+      
+      // Get detailed info (phone, website)
+      const detail = await getPlaceDetails(place.place_id, apiKey);
+      
+      const domain = detail.website ? new URL(detail.website).hostname.replace('www.', '') : null;
+      
+      // Try to get email by crawling website
+      let email = null;
+      let contactPerson = null;
+      if (detail.website) {
+        try {
+          const contacts = await scrapeWebsiteContacts(detail.website);
+          email = contacts.email;
+          contactPerson = contacts.contactPerson;
+        } catch {}
+      }
+
+      leads.push({
+        company_name: place.name,
+        city: city,
+        address: place.formatted_address || detail.formatted_address || '',
+        phone: detail.formatted_phone_number || detail.international_phone_number || null,
+        email: email,
+        website: detail.website || null,
+        domain: domain,
+        contact_person: contactPerson,
+        company_size: detail.user_ratings_total ? `~${detail.user_ratings_total} reviews` : null,
+        decision_maker_title: contactPerson ? 'Found on website' : null,
+        source_url: detail.url || `https://www.google.com/maps/place/?q=place_id:${place.place_id}`,
+        find_instructions: `Google Maps: ${place.name}, ${city}`,
+        notes: `Rating: ${place.rating || 'N/A'}/5 · ${detail.user_ratings_total || 0} reviews · Types: ${(place.types || []).slice(0, 3).join(', ')}`,
+        scraped_from: 'google_maps',
+        sector: inferGCCSector(place.types || [], place.name),
+      });
+      totalFetched++;
+    }
+
+    nextPageToken = data.next_page_token;
+    // Google requires a short delay before using next_page_token
+    if (nextPageToken && totalFetched < maxResults) {
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  } while (nextPageToken && totalFetched < maxResults);
+
+  return leads;
+}
+
+/**
+ * Get Place Details (phone, website, hours, etc.)
+ */
+async function getPlaceDetails(placeId, apiKey) {
+  try {
+    const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
+    url.searchParams.set('place_id', placeId);
+    url.searchParams.set('fields', 'formatted_phone_number,international_phone_number,website,url,formatted_address,user_ratings_total,rating,opening_hours');
+    url.searchParams.set('key', apiKey);
+    
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    return data.result || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Infer sector from Google Maps place types
+ */
+function inferGCCSector(types = [], name = '') {
+  const t = types.join(' ').toLowerCase() + ' ' + name.toLowerCase();
+  if (/general_contractor|construction|plumber|electrician|roofing/.test(t)) return 'construction';
+  if (/lodging|hotel|resort|motel/.test(t)) return 'hospitality';
+  if (/restaurant|food|cafe|bakery|meal_delivery|catering/.test(t)) return 'food_processing';
+  if (/hospital|doctor|health|clinic|medical|pharmacy|dentist/.test(t)) return 'healthcare';
+  if (/school|university|education|training/.test(t)) return 'education';
+  if (/real_estate|property/.test(t)) return 'real_estate';
+  if (/moving|storage|shipping|logistics|freight|transport/.test(t)) return 'logistics';
+  if (/store|shop|supermarket|mall|retail/.test(t)) return 'retail';
+  if (/cleaning|laundry|maintenance/.test(t)) return 'cleaning_maintenance';
+  if (/oil|gas|petroleum|energy/.test(t)) return 'oil_gas';
+  if (/security|guard|surveillance/.test(t)) return 'security';
+  if (/manufacturing|factory|industrial/.test(t)) return 'manufacturing';
+  if (/trading|import|export|wholesale/.test(t)) return 'trading';
+  return 'general';
+}
+
 // ─── Sector inference from 2GIS rubrics ──────────────────────
 function inferSectorFrom2GIS(rubrics = []) {
   const text = rubrics.map(r => (r.name || '')).join(' ').toLowerCase();
@@ -818,6 +938,9 @@ module.exports = {
   GCC_DORK_TEMPLATES,
   GCC_DORK_PRESET_OPTIONS,
   // Functions
+  searchGoogleMaps,
+  getPlaceDetails,
+  inferGCCSector,
   search2GIS,
   parse2GISItem,
   scrapeWebsiteContacts,
