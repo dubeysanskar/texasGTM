@@ -141,14 +141,18 @@ export async function GET(request) {
   const user = getUserFromRequest(request);
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
-  const total = await queryOne("SELECT COUNT(*) as c FROM gtm_leads");
-  const missingEmail = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE email IS NULL OR email = ''");
-  const missingPhone = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE phone IS NULL OR phone = ''");
-  const missingBoth = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE (email IS NULL OR email = '') AND (phone IS NULL OR phone = '')");
-  const hasEmail = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE email IS NOT NULL AND email != ''");
-  const hasPhone = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE phone IS NOT NULL AND phone != ''");
-  const minId = await queryOne("SELECT MIN(id) as v FROM gtm_leads");
-  const maxId = await queryOne("SELECT MAX(id) as v FROM gtm_leads");
+  const { searchParams } = new URL(request.url);
+  const pid = searchParams.get('project_id');
+  const pf = pid ? ` AND project_id = ${parseInt(pid)}` : '';
+
+  const total = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE 1=1${pf}`);
+  const missingEmail = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE (email IS NULL OR email = '')${pf}`);
+  const missingPhone = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE (phone IS NULL OR phone = '')${pf}`);
+  const missingBoth = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE (email IS NULL OR email = '') AND (phone IS NULL OR phone = '')${pf}`);
+  const hasEmail = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE email IS NOT NULL AND email != ''${pf}`);
+  const hasPhone = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE phone IS NOT NULL AND phone != ''${pf}`);
+  const minId = await queryOne(`SELECT MIN(id) as v FROM gtm_leads WHERE 1=1${pf}`);
+  const maxId = await queryOne(`SELECT MAX(id) as v FROM gtm_leads WHERE 1=1${pf}`);
 
   return NextResponse.json({
     total: parseInt(total?.c || 0),

@@ -306,6 +306,8 @@ export async function GET(request) {
     });
   }
 
-  const jobs = await queryAll('SELECT * FROM gtm_scrape_jobs ORDER BY created_at DESC LIMIT 20');
+  const pid = searchParams.get('project_id');
+  const pf = pid ? ` WHERE project_id = ${parseInt(pid)}` : '';
+  const jobs = await queryAll(`SELECT * FROM gtm_scrape_jobs${pf} ORDER BY created_at DESC LIMIT 20`);
   return NextResponse.json(jobs);
 }

@@ -60,9 +60,9 @@ export default function LeadScraperPage() {
   useEffect(() => { if (!authLoading && !user) router.push('/'); if (!authLoading && user && !isAdmin) router.push('/dashboard'); }, [user, authLoading, router, isAdmin]);
   useEffect(() => { if (user && isAdmin) fetch('/api/leads/scrape?config=1').then(r => r.json()).then(setConfig).catch(() => {}); }, [user, isAdmin]);
 
-  const fetchJobs = useCallback(async () => { try { const r = await fetch('/api/leads/scrape'); if (r.ok) setJobs(await r.json()); } catch {} setLoadingJobs(false); }, []);
-  const fetchEnrichStats = useCallback(async () => { try { const r = await fetch('/api/leads/enrich'); if (r.ok) { const d = await r.json(); setEnrichStats(d); if (!rangeFrom) setRangeFrom(String(d.min_id || 1)); if (!rangeTo) setRangeTo(String(d.max_id || 100)); } } catch {} }, []);
-  const fetchVerifyStats = useCallback(async () => { setVerifying(true); try { const r = await fetch('/api/leads/verify'); if (r.ok) setVerifyStats(await r.json()); } catch {} setVerifying(false); }, []);
+  const fetchJobs = useCallback(async () => { try { const r = await fetch(`/api/leads/scrape${projectId ? '?project_id=' + projectId : ''}`); if (r.ok) setJobs(await r.json()); } catch {} setLoadingJobs(false); }, [projectId]);
+  const fetchEnrichStats = useCallback(async () => { try { const r = await fetch(`/api/leads/enrich${projectId ? '?project_id=' + projectId : ''}`); if (r.ok) { const d = await r.json(); setEnrichStats(d); if (!rangeFrom) setRangeFrom(String(d.min_id || 1)); if (!rangeTo) setRangeTo(String(d.max_id || 100)); } } catch {} }, [projectId]);
+  const fetchVerifyStats = useCallback(async () => { setVerifying(true); try { const r = await fetch(`/api/leads/verify${projectId ? '?project_id=' + projectId : ''}`); if (r.ok) setVerifyStats(await r.json()); } catch {} setVerifying(false); }, [projectId]);
 
   useEffect(() => { if (user && isAdmin) { fetchJobs(); fetchEnrichStats(); fetchVerifyStats(); } }, [user, isAdmin, fetchJobs, fetchEnrichStats, fetchVerifyStats]);
 

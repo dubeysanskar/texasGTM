@@ -79,8 +79,8 @@ export default function LeadsPage() {
     try { const r = await fetch(`/api/leads/stats${projectId ? '?project_id=' + projectId : ''}`); setStats(await r.json()); } catch {}
   }, [projectId]);
   const fetchTemplates = useCallback(async () => {
-    try { const r = await fetch('/api/templates'); setTemplates(await r.json()); } catch {}
-  }, []);
+    try { const r = await fetch(`/api/templates${projectId ? '?project_id=' + projectId : ''}`); setTemplates(await r.json()); } catch {}
+  }, [projectId]);
 
   useEffect(() => { if (user) { fetchLeads(); fetchStats(); fetchTemplates(); } }, [user, fetchLeads, fetchStats, fetchTemplates]);
   useEffect(() => { setPage(1); }, [filters, perPage]);

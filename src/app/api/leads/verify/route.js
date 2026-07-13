@@ -23,7 +23,11 @@ export async function GET(request) {
   const user = getUserFromRequest(request);
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
-  const leads = await queryAll('SELECT id, email, domain, company_name FROM gtm_leads ORDER BY id');
+  const { searchParams } = new URL(request.url);
+  const pid = searchParams.get('project_id');
+  const pf = pid ? ` WHERE project_id = ${parseInt(pid)}` : '';
+
+  const leads = await queryAll(`SELECT id, email, domain, company_name FROM gtm_leads${pf} ORDER BY id`);
 
   const stats = {
     total: leads.length,
