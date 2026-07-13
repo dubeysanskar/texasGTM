@@ -8,10 +8,15 @@ export async function GET(request) {
   if (!user || (!isAdmin(user.role) && user.role !== 'marketing'))
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const { searchParams } = new URL(request.url);
+  const pid = searchParams.get('project_id');
+  const pf = pid ? ` WHERE c.project_id = ${parseInt(pid)}` : '';
+
   const campaigns = await queryAll(`
     SELECT c.*, t.name as template_name, t.platform as template_platform
     FROM gtm_email_campaigns c
     LEFT JOIN gtm_templates t ON c.template_id = t.id
+    ${pf}
     ORDER BY c.created_at DESC
   `);
 
@@ -30,8 +35,8 @@ export async function POST(request) {
   const leadCount = await countEligibleLeads(filters);
 
   const res = await query(
-    `INSERT INTO gtm_email_campaigns (name, template_id, language, filters, llm_personalize, daily_limit, send_window_start, send_window_end, total_leads, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    `INSERT INTO gtm_email_campaigns (name, template_id, language, filters, llm_personalize, daily_limit, send_window_start, send_window_end, total_leads, created_by, project_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
     [
       body.name.trim(),
       body.template_id || null,
@@ -43,6 +48,7 @@ export async function POST(request) {
       body.send_window_end || '18:00',
       leadCount,
       user.id,
+      body.project_id || null,
     ]
   );
 

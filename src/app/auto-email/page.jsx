@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 import { useRouter } from 'next/navigation';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
@@ -32,6 +33,7 @@ const SEND_STATUS = {
 
 export default function AutoEmailPage() {
   const { user, loading: authLoading, isAdmin } = useAuth();
+  const { projectId } = useProject();
   const router = useRouter();
   const [campaigns, setCampaigns] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -61,18 +63,18 @@ export default function AutoEmailPage() {
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/auto-email/campaigns');
+      const r = await fetch(`/api/auto-email/campaigns${projectId ? '?project_id=' + projectId : ''}`);
       if (r.ok) setCampaigns(await r.json());
     } catch {}
     setLoading(false);
-  }, []);
+  }, [projectId]);
 
   const fetchTemplates = useCallback(async () => {
     try {
-      const r = await fetch('/api/templates');
+      const r = await fetch(`/api/templates${projectId ? '?project_id=' + projectId : ''}`);
       if (r.ok) setTemplates(await r.json());
     } catch {}
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     if (user) { fetchCampaigns(); fetchTemplates(); }

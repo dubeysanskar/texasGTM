@@ -1,11 +1,13 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 
 const MI = ({ name, size = 18, style = {} }) => <span className="material-symbols-outlined" style={{ fontSize: size, verticalAlign: 'middle', ...style }}>{name}</span>;
 
 export default function MessagesPage() {
   const { user, roleLabels, roleColors } = useAuth();
+  const { projectId } = useProject();
   const [conversations, setConversations] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -17,9 +19,9 @@ export default function MessagesPage() {
   const pollRef = useRef(null);
 
   const fetchConversations = useCallback(async () => {
-    const res = await fetch('/api/messages'); const data = await res.json();
+    const res = await fetch(`/api/messages${projectId ? '?project_id=' + projectId : ''}`); const data = await res.json();
     setConversations(data.conversations || []); setAllUsers(data.allUsers || []);
-  }, []);
+  }, [projectId]);
 
   const fetchChat = useCallback(async (userId) => {
     if (!userId) return;

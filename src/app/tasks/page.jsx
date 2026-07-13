@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size, verticalAlign: 'middle' }}>{name}</span>;
 
@@ -32,6 +33,7 @@ const getDeadlineInfo = (task) => {
 
 export default function TasksPage() {
   const { user, isAdmin, isManager } = useAuth();
+  const { projectId } = useProject();
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState({});
@@ -48,13 +50,14 @@ export default function TasksPage() {
     const p = new URLSearchParams();
     if (filter.status) p.set('status', filter.status);
     if (filter.search) p.set('search', filter.search);
+    if (projectId) p.set('project_id', projectId);
     fetch(`/api/tasks?${p}`).then(r => r.json()).then(d => { setTasks(d.tasks || []); setUsers(d.users || []); setStats(d.stats || {}); }).finally(() => setLoading(false));
-  }, [filter]);
+  }, [filter, projectId]);
   useEffect(fetchTasks, [fetchTasks]);
 
   const createTask = async (e) => {
     e.preventDefault();
-    await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+    await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, project_id: projectId }) });
     setForm({ title: '', assigned_to: '', priority: 'normal', completion_days: 2 }); setShowForm(false); fetchTasks();
   };
 

@@ -1,10 +1,12 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useProject } from '@/context/ProjectContext';
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size, verticalAlign: 'middle' }}>{name}</span>;
 
 export default function LogsPage() {
+  const { projectId } = useProject();
   const [logs, setLogs] = useState([]);
-  useEffect(() => { fetch('/api/logs').then(r => r.json()).then(d => setLogs(d.logs || [])); }, []);
+  useEffect(() => { fetch(`/api/logs${projectId ? '?project_id=' + projectId : ''}`).then(r => r.json()).then(d => setLogs(d.logs || [])); }, [projectId]);
 
   return (
     <div className="page-content">

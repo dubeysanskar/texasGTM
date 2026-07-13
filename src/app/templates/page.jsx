@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 import { useRouter } from 'next/navigation';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
@@ -26,6 +27,7 @@ const SS = {
 
 export default function TemplatesPage() {
   const { user, loading: authLoading, isAdmin } = useAuth();
+  const { projectId } = useProject();
   const router = useRouter();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,10 +42,11 @@ export default function TemplatesPage() {
 
   const fetch_ = useCallback(async () => {
     setLoading(true);
-    const u = platform === 'all' ? '/api/templates' : `/api/templates?platform=${platform}`;
+    let u = platform === 'all' ? '/api/templates' : `/api/templates?platform=${platform}`;
+    if (projectId) u += (u.includes('?') ? '&' : '?') + `project_id=${projectId}`;
     try { const r = await fetch(u); setTemplates(await r.json()); } catch { setTemplates([]); }
     setLoading(false);
-  }, [platform]);
+  }, [platform, projectId]);
 
   useEffect(() => { if (user && isAdmin) fetch_(); }, [user, isAdmin, fetch_]);
 

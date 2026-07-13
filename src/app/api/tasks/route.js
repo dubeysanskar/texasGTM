@@ -9,11 +9,13 @@ export async function GET(request) {
   const status = searchParams.get('status');
   const priority = searchParams.get('priority');
   const search = searchParams.get('search');
+  const pid = searchParams.get('project_id');
 
   let sql = `SELECT t.*, COALESCE(u.name, '—') as assigned_to_name,
     (SELECT COUNT(*) FROM gtm_task_comments WHERE task_id = t.id AND deleted_at IS NULL) as comment_count
     FROM gtm_tasks t LEFT JOIN gtm_users u ON t.assigned_to = u.id WHERE 1=1`;
   const params = [];
+  if (pid) { params.push(pid); sql += ` AND t.project_id = $${params.length}`; }
   if (status) { params.push(status); sql += ` AND t.status = $${params.length}`; }
   if (priority) { params.push(priority); sql += ` AND t.priority = $${params.length}`; }
   if (search) { params.push(`%${search}%`); sql += ` AND t.title ILIKE $${params.length}`; }
@@ -23,10 +25,11 @@ export async function GET(request) {
   const users = await queryAll("SELECT id, name, role FROM gtm_users WHERE is_active = 1 ORDER BY name");
 
   // Stats
-  const pending = await queryOne("SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'pending'");
-  const progress = await queryOne("SELECT COUNT(*) as c FROM gtm_tasks WHERE status IN ('in_progress','progress')");
-  const review = await queryOne("SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'review'");
-  const complete = await queryOne("SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'complete'");
+  const pf = pid ? ` AND project_id = ${parseInt(pid)}` : '';
+  const pending = await queryOne(`SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'pending'${pf}`);
+  const progress = await queryOne(`SELECT COUNT(*) as c FROM gtm_tasks WHERE status IN ('in_progress','progress')${pf}`);
+  const review = await queryOne(`SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'review'${pf}`);
+  const complete = await queryOne(`SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'complete'${pf}`);
 
   return NextResponse.json({
     tasks, users,
@@ -43,12 +46,12 @@ export async function GET(request) {
 export async function POST(request) {
   const user = getUserFromRequest(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { title, assigned_to, priority, completion_days } = await request.json();
+  const { title, assigned_to, priority, completion_days, project_id } = await request.json();
   if (!title?.trim()) return NextResponse.json({ error: 'Title required' }, { status: 400 });
 
   const result = await query(
-    'INSERT INTO gtm_tasks (title, assigned_by, assigner_name, assigned_to, priority, completion_days) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
-    [title.trim(), user.id, user.name, assigned_to || null, priority || 'normal', completion_days || 2]
+    'INSERT INTO gtm_tasks (title, assigned_by, assigner_name, assigned_to, priority, completion_days, project_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+    [title.trim(), user.id, user.name, assigned_to || null, priority || 'normal', completion_days || 2, project_id || null]
   );
 
   if (assigned_to) {
