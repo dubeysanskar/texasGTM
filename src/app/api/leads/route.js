@@ -8,6 +8,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   let sql = 'SELECT * FROM gtm_leads WHERE 1=1';
   const params = [];
+  const projectId = searchParams.get('project_id'); if (projectId) { params.push(projectId); sql += ` AND project_id = $${params.length}`; }
   const status = searchParams.get('status'); if (status) { params.push(status); sql += ` AND status = $${params.length}`; }
   const priority = searchParams.get('priority'); if (priority) { params.push(priority); sql += ` AND priority = $${params.length}`; }
   const sector = searchParams.get('sector'); if (sector) { params.push(sector); sql += ` AND sector = $${params.length}`; }
@@ -42,8 +43,8 @@ export async function POST(request) {
   if (existing) return NextResponse.json({ error: 'Duplicate lead' }, { status: 409 });
 
   const result = await query(
-    `INSERT INTO gtm_leads (company_name,domain,sector,priority,status,city,region,country,company_size,pain_point,decision_maker_title,phone,email,contact_method,source_url,find_instructions,notes,dedup_key,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
-    [b.company_name.trim(),b.domain||'',b.sector||'other',b.priority||'MEDIUM',b.status||'not_contacted',b.city||'',b.region||'',b.country||'',b.company_size||'',b.pain_point||'',b.decision_maker_title||'',b.phone||'',b.email||'',b.contact_method||'',b.source_url||'',b.find_instructions||'',b.notes||'',dedup,user.id]
+    `INSERT INTO gtm_leads (company_name,domain,sector,priority,status,city,region,country,company_size,pain_point,decision_maker_title,phone,email,contact_method,source_url,find_instructions,notes,dedup_key,created_by,project_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
+    [b.company_name.trim(),b.domain||'',b.sector||'other',b.priority||'MEDIUM',b.status||'not_contacted',b.city||'',b.region||'',b.country||'',b.company_size||'',b.pain_point||'',b.decision_maker_title||'',b.phone||'',b.email||'',b.contact_method||'',b.source_url||'',b.find_instructions||'',b.notes||'',dedup,user.id,b.project_id||null]
   );
   await query('INSERT INTO gtm_activity_logs (user_id, user_name, user_role, action, category, entity_type, entity_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
     [user.id, user.name, user.role, `Added lead "${b.company_name}"`, 'lead', 'lead', result.rows[0].id]);

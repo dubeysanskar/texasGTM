@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 import { useRouter } from 'next/navigation';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size }}>{name}</span>;
@@ -9,6 +10,7 @@ const PRESET_WEB = ['производственное предприятие м�
 
 export default function LeadScraperPage() {
   const { user, loading: authLoading, isAdmin } = useAuth();
+  const { projectId } = useProject();
   const router = useRouter();
 
   // Scraper
@@ -85,6 +87,7 @@ export default function LeadScraperPage() {
 
       addLog('⏳ Sending request to server... (this may take 1-5 minutes)', 'wait');
 
+      body.project_id = projectId;
       const res = await fetch('/api/leads/scrape', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
 

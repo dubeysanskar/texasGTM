@@ -33,7 +33,7 @@ export async function POST(request) {
   if (!user || !isAdmin(user.role)) return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
   const body = await request.json();
-  const { source, query: searchQuery, industry, cities, maxLeads = 100, dorkType, dorkVars, customDork } = body;
+  const { source, query: searchQuery, industry, cities, maxLeads = 100, dorkType, dorkVars, customDork, project_id } = body;
   if (!source) return NextResponse.json({ error: 'source is required' }, { status: 400 });
 
   // Create job record
@@ -46,8 +46,8 @@ export async function POST(request) {
     : `${searchQuery} (max ${maxLeads})`;
 
   const job = await query(
-    "INSERT INTO gtm_scrape_jobs (source, query, status, started_at, created_by) VALUES ($1, $2, 'running', NOW(), $3) RETURNING id",
-    [source, jobLabel || null, user.id]
+    "INSERT INTO gtm_scrape_jobs (source, query, status, started_at, created_by, project_id) VALUES ($1, $2, 'running', NOW(), $3, $4) RETURNING id",
+    [source, jobLabel || null, user.id, project_id || null]
   );
   const jobId = job.rows[0].id;
 
@@ -95,8 +95,8 @@ export async function POST(request) {
       if (existing) { skipped++; continue; }
       try {
         await query(
-          `INSERT INTO gtm_leads (company_name, domain, sector, priority, status, city, company_size, pain_point, decision_maker_title, phone, email, source_url, find_instructions, notes, scraped_from, dedup_key, created_by) VALUES ($1,$2,$3,$4,'not_contacted',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-          [lead.company_name, lead.domain || '', lead.sector || 'manufacturing', lead.priority || 'MEDIUM', lead.city || '', lead.company_size || '', lead.pain_point || '', lead.decision_maker_title || '', lead.phone || '', lead.email || '', lead.source_url || '', lead.find_instructions || '', lead.notes || '', lead.scraped_from || source, dedupKey, user.id]
+          `INSERT INTO gtm_leads (company_name, domain, sector, priority, status, city, company_size, pain_point, decision_maker_title, phone, email, source_url, find_instructions, notes, scraped_from, dedup_key, created_by, project_id) VALUES ($1,$2,$3,$4,'not_contacted',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+          [lead.company_name, lead.domain || '', lead.sector || 'manufacturing', lead.priority || 'MEDIUM', lead.city || '', lead.company_size || '', lead.pain_point || '', lead.decision_maker_title || '', lead.phone || '', lead.email || '', lead.source_url || '', lead.find_instructions || '', lead.notes || '', lead.scraped_from || source, dedupKey, user.id, project_id || null]
         );
         added++;
       } catch (e) {

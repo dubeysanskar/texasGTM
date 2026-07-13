@@ -6,11 +6,15 @@ export async function GET(request) {
   const user = getUserFromRequest(request);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const { searchParams } = new URL(request.url);
+  const pid = searchParams.get('project_id');
+  const pf = pid ? ' AND project_id = ' + parseInt(pid) : '';
+
   const totalTasks = await queryOne('SELECT COUNT(*) as c FROM gtm_tasks');
   const completedTasks = await queryOne("SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'complete'");
   const pendingTasks = await queryOne("SELECT COUNT(*) as c FROM gtm_tasks WHERE status = 'pending'");
-  const totalLeads = await queryOne('SELECT COUNT(*) as c FROM gtm_leads');
-  const hotLeads = await queryOne("SELECT COUNT(*) as c FROM gtm_leads WHERE priority = 'HOT'");
+  const totalLeads = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE 1=1${pf}`);
+  const hotLeads = await queryOne(`SELECT COUNT(*) as c FROM gtm_leads WHERE priority = 'HOT'${pf}`);
   const unreadMsgs = await queryOne('SELECT COUNT(*) as c FROM gtm_messages WHERE receiver_id = $1 AND is_read = 0', [user.id]);
   const totalUsers = isAdmin(user.role) ? await queryOne('SELECT COUNT(*) as c FROM gtm_users') : { c: 0 };
 

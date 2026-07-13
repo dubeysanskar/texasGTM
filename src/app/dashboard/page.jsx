@@ -1,16 +1,18 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 import Link from 'next/link';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size, verticalAlign: 'middle' }}>{name}</span>;
 
 export default function DashboardPage() {
   const { user, isAdmin } = useAuth();
+  const { projectId, activeProject } = useProject();
   const [data, setData] = useState({ stats: {} });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { fetch('/api/dashboard').then(r => r.json()).then(setData).finally(() => setLoading(false)); }, []);
+  useEffect(() => { fetch(`/api/dashboard${projectId ? '?project_id=' + projectId : ''}`).then(r => r.json()).then(setData).finally(() => setLoading(false)); }, [projectId]);
 
   if (loading) return (
     <div className="page-content">

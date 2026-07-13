@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useProject } from '@/context/ProjectContext';
 import { useRouter } from 'next/navigation';
 
 const SC = {
@@ -29,6 +30,7 @@ const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" 
 
 export default function LeadsPage() {
   const { user, loading: authLoading, isAdmin } = useAuth();
+  const { projectId } = useProject();
   const router = useRouter();
   const [leads, setLeads] = useState([]);
   const [stats, setStats] = useState(null);
@@ -64,17 +66,18 @@ export default function LeadsPage() {
     if (filters.status) p.set('status', filters.status);
     if (filters.search) p.set('search', filters.search);
     p.set('page', page); p.set('limit', perPage); p.set('order', sortOrder);
+    if (projectId) p.set('project_id', projectId);
     try {
       const res = await fetch(`/api/leads?${p}`);
       const d = await res.json();
       setLeads(d.leads || []); setTotal(d.total || 0); setTotalPages(d.totalPages || 1);
     } catch { setLeads([]); }
     setLoading(false);
-  }, [filters, page, perPage, sortOrder]);
+  }, [filters, page, perPage, sortOrder, projectId]);
 
   const fetchStats = useCallback(async () => {
-    try { const r = await fetch('/api/leads/stats'); setStats(await r.json()); } catch {}
-  }, []);
+    try { const r = await fetch(`/api/leads/stats${projectId ? '?project_id=' + projectId : ''}`); setStats(await r.json()); } catch {}
+  }, [projectId]);
   const fetchTemplates = useCallback(async () => {
     try { const r = await fetch('/api/templates'); setTemplates(await r.json()); } catch {}
   }, []);

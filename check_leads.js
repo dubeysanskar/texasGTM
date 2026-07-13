@@ -1,69 +1,77 @@
-// Clean garbage leads from the database
 const db = require('./src/lib/db');
 
-// Patterns that indicate a garbage lead (not a real company)
-const GARBAGE_PATTERNS = [
-  /^captcha/i,
-  /^работа\b/i,    // "Работа..." = job listing title
-  /^вакансии?\b/i,  // "Вакансия..." = vacancy title
-  /^свежие/i,      // "Свежие вакансии" = fresh vacancies
-  /^поиск/i,       // "Поиск работы" = job search
-  /^найти/i,       // "Найти работу" = find job
-  /^резюме/i,      // resume
-  /^hh\.ru/i,
-  /^superjob/i,
-  /^indeed/i,
-  /^avito/i,
-  /^duckduckgo/i,
-  /^google/i,
-  /^yandex/i,
-  /^error/i,
-  /^404/i,
-  /^403/i,
-  /^access denied/i,
-  /^page not found/i,
-  /^verify/i,
-];
+async function migrate() {
+  console.log('=== Multi-Project Migration ===\n');
 
-async function run() {
-  const leads = await db.queryAll('SELECT id, company_name, domain, email FROM gtm_leads ORDER BY id');
-  console.log(`Total leads: ${leads.length}\n`);
+  // 1. Create gtm_projects table
+  console.log('1. Creating gtm_projects table...');
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS gtm_projects (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      slug VARCHAR(50) UNIQUE NOT NULL,
+      country VARCHAR(100),
+      description TEXT,
+      color VARCHAR(7) DEFAULT '#3B82F6',
+      icon VARCHAR(50) DEFAULT 'language',
+      scraper_config JSONB DEFAULT '{}',
+      is_active BOOLEAN DEFAULT true,
+      created_by INTEGER REFERENCES gtm_users(id),
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  console.log('   ✅ gtm_projects created');
 
-  const garbage = [];
-  for (const lead of leads) {
-    const name = (lead.company_name || '').trim();
-    const isGarbage = GARBAGE_PATTERNS.some(p => p.test(name)) || name.length < 2 || name.length > 150;
-    if (isGarbage) {
-      garbage.push(lead);
+  // 2. Add project_id to scoped tables
+  const tables = ['gtm_leads', 'gtm_email_campaigns', 'gtm_templates', 'gtm_scrape_jobs'];
+  for (const table of tables) {
+    console.log(`2. Adding project_id to ${table}...`);
+    try {
+      await db.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES gtm_projects(id)`);
+      console.log(`   ✅ ${table}.project_id added`);
+    } catch (e) {
+      if (e.message.includes('already exists')) console.log(`   ⏭️  ${table}.project_id already exists`);
+      else throw e;
     }
   }
 
-  console.log(`Found ${garbage.length} garbage leads:`);
-  garbage.forEach(g => console.log(`  #${g.id}: "${g.company_name}" (${g.domain || 'no domain'})`));
-
-  if (garbage.length > 0) {
-    const ids = garbage.map(g => g.id);
-    // Delete them
-    for (const id of ids) {
-      await db.query('DELETE FROM gtm_leads WHERE id = $1', [id]);
-    }
-    console.log(`\n✅ Deleted ${ids.length} garbage leads`);
+  // 3. Create default "Russia GTM" project
+  console.log('3. Creating default project...');
+  const existing = await db.queryOne("SELECT id FROM gtm_projects WHERE slug = 'russia-gtm'");
+  let projectId;
+  if (existing) {
+    projectId = existing.id;
+    console.log(`   ⏭️  "Russia GTM" already exists (id=${projectId})`);
+  } else {
+    const r = await db.query(
+      "INSERT INTO gtm_projects (name, slug, country, color, icon, description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+      ['Russia GTM', 'russia-gtm', 'Russia', '#DC2626', 'language', 'Russian market outreach — manufacturing, construction, logistics']
+    );
+    projectId = r.rows[0].id;
+    console.log(`   ✅ "Russia GTM" created (id=${projectId})`);
   }
 
-  // Also show leads with bad domains (contains /)
-  const badDomain = await db.queryAll("SELECT id, company_name, domain FROM gtm_leads WHERE domain LIKE '%/%' LIMIT 10");
-  if (badDomain.length > 0) {
-    console.log(`\n⚠️ ${badDomain.length} leads have bad domains (contain /):`);
-    badDomain.forEach(b => console.log(`  #${b.id}: domain="${b.domain}"`));
-    // Fix them by taking only the first part
-    for (const b of badDomain) {
-      const fixed = b.domain.split('/')[0].trim();
-      await db.query('UPDATE gtm_leads SET domain = $1 WHERE id = $2', [fixed, b.id]);
-    }
-    console.log(`Fixed ${badDomain.length} domains`);
+  // 4. Assign all existing data to Russia GTM
+  console.log('4. Assigning existing data to Russia GTM...');
+  for (const table of tables) {
+    const result = await db.query(`UPDATE ${table} SET project_id = $1 WHERE project_id IS NULL`, [projectId]);
+    console.log(`   ✅ ${table}: ${result.rowCount} rows updated`);
   }
+
+  // 5. Create indexes
+  console.log('5. Creating indexes...');
+  try { await db.query('CREATE INDEX IF NOT EXISTS idx_leads_project ON gtm_leads(project_id)'); } catch {}
+  try { await db.query('CREATE INDEX IF NOT EXISTS idx_campaigns_project ON gtm_email_campaigns(project_id)'); } catch {}
+  try { await db.query('CREATE INDEX IF NOT EXISTS idx_templates_project ON gtm_templates(project_id)'); } catch {}
+  try { await db.query('CREATE INDEX IF NOT EXISTS idx_scrape_jobs_project ON gtm_scrape_jobs(project_id)'); } catch {}
+  console.log('   ✅ Indexes created');
+
+  // Verify
+  const count = await db.queryOne('SELECT COUNT(*) as c FROM gtm_projects');
+  const leads = await db.queryOne('SELECT COUNT(*) as c FROM gtm_leads WHERE project_id IS NOT NULL');
+  console.log(`\n✅ Done! ${count.c} project(s), ${leads.c} leads assigned.`);
 
   process.exit(0);
 }
 
-run().catch(e => { console.error(e); process.exit(1); });
+migrate().catch(e => { console.error('FATAL:', e.message); process.exit(1); });
