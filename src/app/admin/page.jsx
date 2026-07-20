@@ -6,6 +6,7 @@ const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" 
 
 const TABS = [
   { id: 'users', label: 'Users', icon: 'group' },
+  { id: 'project_access', label: 'Project Access', icon: 'lock_person' },
   { id: 'settings', label: 'Settings', icon: 'tune' },
 ];
 
@@ -17,7 +18,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff', project_id: '', project_role: 'member' });
   const [editUser, setEditUser] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -26,17 +27,67 @@ export default function AdminPage() {
   const [roleLabelEdits, setRoleLabelEdits] = useState({});
   const [settingsSaved, setSettingsSaved] = useState(false);
 
-  const fetchUsers = () => { fetch('/api/users').then(r => r.json()).then(d => setUsers(d.users || [])).finally(() => setLoading(false)); };
+  // Project Access
+  const [projects, setProjects] = useState([]);
+  const [memberships, setMemberships] = useState([]);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [memberRole, setMemberRole] = useState('member');
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [allMemberships, setAllMemberships] = useState([]);
 
-  useEffect(() => { fetchUsers(); }, []);
+  const fetchUsers = () => { fetch('/api/users').then(r => r.json()).then(d => setUsers(d.users || [])).finally(() => setLoading(false)); };
+  const fetchAllMemberships = () => { fetch('/api/projects/members').then(r => r.json()).then(d => setAllMemberships(d.memberships || [])).catch(() => {}); };
+
+  useEffect(() => { fetchUsers(); fetchProjects(); fetchAllMemberships(); }, []);
   useEffect(() => { setRoleLabelEdits({ ...roleLabels }); }, [roleLabels]);
+  useEffect(() => { if (selectedProject) fetchProjectMembers(selectedProject); }, [selectedProject]);
+
+  const fetchProjects = () => {
+    fetch('/api/projects').then(r => r.json()).then(d => {
+      setProjects(Array.isArray(d) ? d : []);
+      if (Array.isArray(d) && d.length > 0 && !selectedProject) setSelectedProject(d[0].id);
+    });
+  };
+
+  const fetchProjectMembers = (projectId) => {
+    setLoadingMembers(true);
+    fetch(`/api/projects/members?project_id=${projectId}`).then(r => r.json()).then(d => setMemberships(d.members || [])).finally(() => setLoadingMembers(false));
+  };
+
+  const addMember = async () => {
+    if (!selectedUserId || !selectedProject) return;
+    setError('');
+    const res = await fetch('/api/projects/members', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: Number(selectedUserId), project_id: selectedProject, role: memberRole }),
+    });
+    if (res.ok) {
+      setSuccess('Member added!'); setTimeout(() => setSuccess(''), 3000);
+      fetchProjectMembers(selectedProject);
+      fetchAllMemberships();
+      setSelectedUserId('');
+    } else { const d = await res.json(); setError(d.error); setTimeout(() => setError(''), 3000); }
+  };
+
+  const removeMember = async (userId) => {
+    if (!confirm('Remove this user from the project?')) return;
+    await fetch('/api/projects/members', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, project_id: selectedProject }),
+    });
+    setSuccess('Member removed'); setTimeout(() => setSuccess(''), 3000);
+    fetchProjectMembers(selectedProject);
+    fetchAllMemberships();
+  };
 
   if (!isAdmin) return <div className="page-content"><p>Access denied</p></div>;
 
   const createUser = async (e) => {
     e.preventDefault(); setError('');
-    const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    if (res.ok) { setForm({ name: '', email: '', password: '', role: 'staff' }); setShowForm(false); setSuccess('User created!'); fetchUsers(); setTimeout(() => setSuccess(''), 3000); }
+    const payload = { ...form, project_id: form.role === 'super_admin' ? null : Number(form.project_id) || null };
+    const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (res.ok) { setForm({ name: '', email: '', password: '', role: 'staff', project_id: '', project_role: 'member' }); setShowForm(false); setSuccess('User created!'); fetchUsers(); fetchAllMemberships(); setTimeout(() => setSuccess(''), 3000); }
     else { const d = await res.json(); setError(d.error); setTimeout(() => setError(''), 3000); }
   };
 
@@ -105,6 +156,30 @@ export default function AdminPage() {
                   <div className="form-group"><label>Role</label><select className="form-input" value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>
                     {ROLES.map(r => <option key={r} value={r}>{roleLabels[r] || r}</option>)}</select></div>
                 </div>
+                {form.role !== 'super_admin' ? (
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Project *</label>
+                      <select className="form-input" value={form.project_id} onChange={e => setForm(p => ({ ...p, project_id: e.target.value }))} required>
+                        <option value="">Select project...</option>
+                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}{p.country ? ` — ${p.country}` : ''}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label>Project Role</label>
+                      <select className="form-input" value={form.project_role} onChange={e => setForm(p => ({ ...p, project_role: e.target.value }))}>
+                        <option value="owner">Owner</option>
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                        <option value="viewer">Viewer</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                    <MI name="info" size={14} /> Super Admins automatically have access to all projects — no project mapping needed.
+                  </p>
+                )}
                 <button type="submit" className="btn btn-success"><MI name="check" size={16} /> Create</button>
               </form>
             </div>
@@ -114,7 +189,7 @@ export default function AdminPage() {
           <div className="card" style={{ padding: 0 }}>
             <div className="table-container" style={{ border: 'none' }}>
               <table>
-                <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+                <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Projects</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
                 <tbody>
                   {users.map(u => (
                     <tr key={u.id}>
@@ -127,6 +202,22 @@ export default function AdminPage() {
                           </select>
                         ) : (
                           <span style={{ fontSize: '0.75rem', padding: '3px 10px', borderRadius: 20, fontWeight: 600, background: `${roleColors[u.role]}15`, color: roleColors[u.role] }}>{roleLabels[u.role] || u.role}</span>
+                        )}
+                      </td>
+                      <td>
+                        {u.role === 'super_admin' ? (
+                          <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#8b5cf6' }}>All projects</span>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {allMemberships.filter(m => m.user_id === u.id).map(m => (
+                              <span key={m.id} style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: 12, fontWeight: 600, background: `${m.project_color || '#3b82f6'}15`, color: m.project_color || '#3b82f6' }}>
+                                {m.project_name} · {m.role}
+                              </span>
+                            ))}
+                            {allMemberships.filter(m => m.user_id === u.id).length === 0 && (
+                              <span style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 600 }}>No project</span>
+                            )}
+                          </div>
                         )}
                       </td>
                       <td><span style={{ fontSize: '0.72rem', fontWeight: 600, color: u.is_active ? '#10b981' : '#ef4444' }}>{u.is_active ? '● Active' : '○ Disabled'}</span></td>
@@ -151,6 +242,117 @@ export default function AdminPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ════ PROJECT ACCESS TAB ════ */}
+      {activeTab === 'project_access' && (
+        <div>
+          {/* Project selector */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <h3 style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <MI name="folder" size={20} /> Select Project
+            </h3>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {projects.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedProject(p.id)}
+                  style={{
+                    padding: '8px 16px', borderRadius: 8, border: selectedProject === p.id ? `2px solid ${p.color || '#3b82f6'}` : '1px solid #e5e7eb',
+                    background: selectedProject === p.id ? `${p.color || '#3b82f6'}10` : '#fff',
+                    cursor: 'pointer', fontSize: '0.82rem', fontWeight: selectedProject === p.id ? 700 : 500,
+                    color: selectedProject === p.id ? (p.color || '#3b82f6') : '#6b7280',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color || '#3b82f6' }} />
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {selectedProject && (
+            <>
+              {/* Add member */}
+              <div className="card" style={{ marginBottom: 16 }}>
+                <h3 style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <MI name="person_add" size={20} /> Add Member
+                </h3>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ marginBottom: 0, minWidth: 200 }}>
+                    <label>User</label>
+                    <select className="form-input" value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)}>
+                      <option value="">Select user...</option>
+                      {users.filter(u => u.role !== 'super_admin' && !memberships.find(m => m.user_id === u.id)).map(u => (
+                        <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Role</label>
+                    <select className="form-input" value={memberRole} onChange={e => setMemberRole(e.target.value)}>
+                      <option value="owner">Owner</option>
+                      <option value="admin">Admin</option>
+                      <option value="member">Member</option>
+                      <option value="viewer">Viewer</option>
+                    </select>
+                  </div>
+                  <button className="btn btn-primary" onClick={addMember} disabled={!selectedUserId}>
+                    <MI name="add" size={16} /> Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Members list */}
+              <div className="card" style={{ padding: 0 }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ fontSize: '0.92rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <MI name="groups" size={20} /> Members ({memberships.length})
+                  </h3>
+                </div>
+                {loadingMembers ? (
+                  <div style={{ padding: 30, textAlign: 'center', color: '#9ca3af' }}>Loading...</div>
+                ) : memberships.length === 0 ? (
+                  <div style={{ padding: 30, textAlign: 'center', color: '#9ca3af', fontSize: '0.82rem' }}>
+                    <MI name="group_off" size={32} />
+                    <div style={{ marginTop: 8 }}>No members assigned to this project yet</div>
+                  </div>
+                ) : (
+                  <div className="table-container" style={{ border: 'none' }}>
+                    <table>
+                      <thead><tr><th>User</th><th>Email</th><th>System Role</th><th>Project Role</th><th>Added</th><th>Actions</th></tr></thead>
+                      <tbody>
+                        {memberships.map(m => (
+                          <tr key={m.id}>
+                            <td><strong>{m.user_name}</strong></td>
+                            <td style={{ fontSize: '0.78rem' }}>{m.user_email}</td>
+                            <td>
+                              <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 12, background: `${roleColors[m.user_role] || '#6b7280'}15`, color: roleColors[m.user_role] || '#6b7280', fontWeight: 600 }}>
+                                {roleLabels[m.user_role] || m.user_role}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 12, background: '#eff6ff', color: '#1e40af', fontWeight: 600, textTransform: 'capitalize' }}>
+                                {m.role}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(m.created_at).toLocaleDateString()}</td>
+                            <td>
+                              <button className="btn btn-sm btn-ghost" style={{ color: '#ef4444' }} onClick={() => removeMember(m.user_id)} title="Remove from project">
+                                <MI name="person_remove" size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* ════ SETTINGS TAB ════ */}

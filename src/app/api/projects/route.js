@@ -1,14 +1,31 @@
 import { NextResponse } from 'next/server';
 const { queryAll, queryOne, query } = require('@/lib/db');
-const { getUserFromRequest, isAdmin } = require('@/lib/auth');
+const { getUserFromRequest, isAdmin, getUserProjectIds } = require('@/lib/auth');
 
-// GET /api/projects — list all projects
+// GET /api/projects — list projects user has access to
 export async function GET(request) {
   const user = getUserFromRequest(request);
   if (!user) return NextResponse.json({ error: 'Auth required' }, { status: 401 });
 
+  if (isAdmin(user.role)) {
+    // Super admins see all projects
+    const projects = await queryAll(
+      'SELECT p.*, (SELECT COUNT(*) FROM gtm_leads WHERE project_id = p.id) as lead_count FROM gtm_projects p WHERE p.is_active = true ORDER BY p.created_at ASC'
+    );
+    return NextResponse.json(projects);
+  }
+
+  // Non-admins only see their assigned projects
+  const projectIds = await getUserProjectIds(user.id, user.role);
+  if (!projectIds.length) return NextResponse.json([]);
+
+  const placeholders = projectIds.map((_, i) => `$${i + 1}`).join(',');
   const projects = await queryAll(
-    'SELECT p.*, (SELECT COUNT(*) FROM gtm_leads WHERE project_id = p.id) as lead_count FROM gtm_projects p WHERE p.is_active = true ORDER BY p.created_at ASC'
+    `SELECT p.*, (SELECT COUNT(*) FROM gtm_leads WHERE project_id = p.id) as lead_count
+     FROM gtm_projects p
+     WHERE p.is_active = true AND p.id IN (${placeholders})
+     ORDER BY p.created_at ASC`,
+    projectIds
   );
   return NextResponse.json(projects);
 }

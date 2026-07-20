@@ -16,8 +16,16 @@ export default function LoginPage() {
   const [otp, setOtp] = useState('');
   const [otpEmail, setOtpEmail] = useState('');
   const [isAdminOtp, setIsAdminOtp] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [regProjectId, setRegProjectId] = useState('');
 
   useEffect(() => { if (!loading && user) router.push('/dashboard'); }, [user, loading, router]);
+
+  // Load projects for the signup "Project Allotment" dropdown
+  useEffect(() => {
+    if (mode !== 'register' || projects.length) return;
+    fetch('/api/projects/public').then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [mode, projects.length]);
 
   // Check if email is admin — send OTP directly (no password)
   const checkEmailAndProceed = async (e) => {
@@ -94,7 +102,7 @@ export default function LoginPage() {
   const handleRegister = async (e) => {
     e.preventDefault(); setError(''); setSubmitting(true);
     try {
-      const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: regName, email, password }) });
+      const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: regName, email, password, project_id: Number(regProjectId) }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       await login(email, password);
@@ -181,7 +189,16 @@ export default function LoginPage() {
             <div className="form-group"><label>Full Name</label><input className="form-input" placeholder="John Doe" value={regName} onChange={e => setRegName(e.target.value)} required /></div>
             <div className="form-group"><label>Email</label><input className="form-input" type="email" placeholder="you@company.com" value={email} onChange={e => setEmail(e.target.value)} required /></div>
             <div className="form-group"><label>Password</label><input className="form-input" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required /></div>
-            <button type="submit" disabled={submitting} className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '0.92rem', marginTop: 8 }}>
+            <div className="form-group">
+              <label>Project Allotment</label>
+              <select className="form-input" value={regProjectId} onChange={e => setRegProjectId(e.target.value)} required>
+                <option value="">Select your project...</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}{p.country ? ` — ${p.country}` : ''}</option>
+                ))}
+              </select>
+            </div>
+            <button type="submit" disabled={submitting || !regProjectId} className="btn btn-primary" style={{ width: '100%', padding: '12px', fontSize: '0.92rem', marginTop: 8 }}>
               {submitting ? 'Creating...' : 'Create Account'}
             </button>
           </form>

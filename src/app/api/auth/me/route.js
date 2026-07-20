@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-const { getUserFromRequest } = require('@/lib/auth');
+const { getUserFromRequest, getUserProjectIds } = require('@/lib/auth');
 const { queryOne } = require('@/lib/db');
 
 export async function GET(request) {
@@ -9,5 +9,8 @@ export async function GET(request) {
   const user = await queryOne('SELECT id, name, email, role, company, phone, avatar, bio FROM gtm_users WHERE id = $1', [payload.id]);
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  return NextResponse.json({ user });
+  // Include accessible project IDs
+  const project_ids = await getUserProjectIds(user.id, user.role);
+
+  return NextResponse.json({ user: { ...user, project_ids } });
 }

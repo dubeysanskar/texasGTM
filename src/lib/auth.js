@@ -26,4 +26,27 @@ function isAdmin(role) { return role === 'super_admin'; }
 function isManager(role) { return ['super_admin', 'manager'].includes(role); }
 function isStaff(role) { return ['super_admin', 'manager', 'staff', 'marketing'].includes(role); }
 
-module.exports = { signToken, verifyToken, getUserFromRequest, isAdmin, isManager, isStaff };
+/**
+ * Get all project IDs a user has access to. Super admins get all projects.
+ */
+async function getUserProjectIds(userId, role) {
+  const { queryAll } = require('@/lib/db');
+  if (role === 'super_admin') {
+    const all = await queryAll('SELECT id FROM gtm_projects WHERE is_active = true');
+    return all.map(p => p.id);
+  }
+  const memberships = await queryAll('SELECT project_id FROM gtm_project_members WHERE user_id = $1', [userId]);
+  return memberships.map(m => m.project_id);
+}
+
+/**
+ * Check if user has access to a specific project. Super admins always have access.
+ */
+async function requireProjectAccess(user, projectId) {
+  if (!projectId) return true; // No project scoping
+  if (user.role === 'super_admin') return true;
+  const ids = await getUserProjectIds(user.id, user.role);
+  return ids.includes(Number(projectId));
+}
+
+module.exports = { signToken, verifyToken, getUserFromRequest, isAdmin, isManager, isStaff, getUserProjectIds, requireProjectAccess };

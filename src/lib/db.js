@@ -297,6 +297,19 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_gtm_msgs_sender ON gtm_messages(sender_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_msgs_receiver ON gtm_messages(receiver_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_task_comments ON gtm_task_comments(task_id);
+
+    CREATE TABLE IF NOT EXISTS gtm_project_members (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      project_id INTEGER NOT NULL,
+      role TEXT DEFAULT 'member',
+      added_by INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, project_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gtm_pm_user ON gtm_project_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_gtm_pm_project ON gtm_project_members(project_id);
   `);
 
   // Seed default settings

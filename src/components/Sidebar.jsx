@@ -60,36 +60,52 @@ export default function Sidebar() {
       </div>
 
       {/* ═══ PROJECT SWITCHER ═══ */}
-      {isAdmin && (
+      {projects.length > 0 && (
         <div style={{ padding: '4px 12px 8px', position: 'relative' }}>
-          <button
-            onClick={() => setShowProjectDropdown(!showProjectDropdown)}
-            style={{
+          {/* Single project for non-admin: just show the name */}
+          {!isAdmin && projects.length <= 1 ? (
+            <div style={{
               width: '100%', padding: '8px 10px', borderRadius: 8,
               border: `2px solid ${activeProject?.color || '#3B82F6'}20`,
               background: `${activeProject?.color || '#3B82F6'}10`,
-              cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-              transition: 'all .15s',
-            }}
-          >
-            <span style={{
-              width: 10, height: 10, borderRadius: '50%',
-              background: activeProject?.color || '#3B82F6',
-              flexShrink: 0,
-            }} />
-            <span style={{
-              flex: 1, textAlign: 'left', fontSize: '0.78rem', fontWeight: 700,
-              color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 8,
             }}>
-              {activeProject?.name || 'Select Project'}
-            </span>
-            <span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>
-              {activeProject?.lead_count || 0}
-            </span>
-            <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#9ca3af' }}>
-              {showProjectDropdown ? 'expand_less' : 'expand_more'}
-            </span>
-          </button>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: activeProject?.color || '#3B82F6', flexShrink: 0 }} />
+              <span style={{ flex: 1, textAlign: 'left', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {activeProject?.name || 'My Project'}
+              </span>
+            </div>
+          ) : (
+            /* Multi-project or admin: show dropdown */
+            <button
+              onClick={() => setShowProjectDropdown(!showProjectDropdown)}
+              style={{
+                width: '100%', padding: '8px 10px', borderRadius: 8,
+                border: `2px solid ${activeProject?.color || '#3B82F6'}20`,
+                background: `${activeProject?.color || '#3B82F6'}10`,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                transition: 'all .15s',
+              }}
+            >
+              <span style={{
+                width: 10, height: 10, borderRadius: '50%',
+                background: activeProject?.color || '#3B82F6',
+                flexShrink: 0,
+              }} />
+              <span style={{
+                flex: 1, textAlign: 'left', fontSize: '0.78rem', fontWeight: 700,
+                color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {activeProject?.name || 'Select Project'}
+              </span>
+              <span style={{ fontSize: '0.6rem', color: '#9ca3af' }}>
+                {activeProject?.lead_count || 0}
+              </span>
+              <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#9ca3af' }}>
+                {showProjectDropdown ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+          )}
 
           {/* Dropdown */}
           {showProjectDropdown && (
@@ -130,6 +146,8 @@ export default function Sidebar() {
                 ))}
               </div>
 
+              {/* New Project — admin only */}
+              {isAdmin && (
               <div style={{ borderTop: '1px solid #f3f4f6', padding: 6 }}>
                 {!showNewProject ? (
                   <button
@@ -200,6 +218,7 @@ export default function Sidebar() {
                   </form>
                 )}
               </div>
+              )}
             </div>
           )}
         </div>
