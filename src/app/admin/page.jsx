@@ -18,7 +18,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff', project_id: '', project_role: 'member' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'staff', project_ids: [], project_role: 'member' });
   const [editUser, setEditUser] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -85,10 +85,32 @@ export default function AdminPage() {
 
   const createUser = async (e) => {
     e.preventDefault(); setError('');
-    const payload = { ...form, project_id: form.role === 'super_admin' ? null : Number(form.project_id) || null };
+    const payload = { ...form, project_ids: form.role === 'super_admin' ? [] : form.project_ids.map(Number) };
     const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (res.ok) { setForm({ name: '', email: '', password: '', role: 'staff', project_id: '', project_role: 'member' }); setShowForm(false); setSuccess('User created!'); fetchUsers(); fetchAllMemberships(); setTimeout(() => setSuccess(''), 3000); }
+    if (res.ok) { setForm({ name: '', email: '', password: '', role: 'staff', project_ids: [], project_role: 'member' }); setShowForm(false); setSuccess('User created!'); fetchUsers(); fetchAllMemberships(); setTimeout(() => setSuccess(''), 3000); }
     else { const d = await res.json(); setError(d.error); setTimeout(() => setError(''), 3000); }
+  };
+
+  // Inline project mapping from the Users table
+  const addUserToProject = async (userId, projectId) => {
+    if (!projectId) return;
+    setError('');
+    const res = await fetch('/api/projects/members', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, project_id: Number(projectId), role: 'member' }),
+    });
+    if (res.ok) { setSuccess('Project assigned!'); setTimeout(() => setSuccess(''), 2000); fetchAllMemberships(); if (selectedProject) fetchProjectMembers(selectedProject); }
+    else { const d = await res.json(); setError(d.error); setTimeout(() => setError(''), 3000); }
+  };
+
+  const removeUserFromProject = async (userId, projectId, projectName) => {
+    if (!confirm(`Remove this user from ${projectName}?`)) return;
+    await fetch('/api/projects/members', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, project_id: projectId }),
+    });
+    setSuccess('Project removed'); setTimeout(() => setSuccess(''), 2000);
+    fetchAllMemberships(); if (selectedProject) fetchProjectMembers(selectedProject);
   };
 
   const updateUser = async (id, updates) => {
@@ -159,11 +181,32 @@ export default function AdminPage() {
                 {form.role !== 'super_admin' ? (
                   <div className="form-row">
                     <div className="form-group">
-                      <label>Project *</label>
-                      <select className="form-input" value={form.project_id} onChange={e => setForm(p => ({ ...p, project_id: e.target.value }))} required>
-                        <option value="">Select project...</option>
-                        {projects.map(p => <option key={p.id} value={p.id}>{p.name}{p.country ? ` — ${p.country}` : ''}</option>)}
-                      </select>
+                      <label>Projects * (select one or more)</label>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '8px 0' }}>
+                        {projects.map(p => {
+                          const checked = form.project_ids.includes(String(p.id)) || form.project_ids.includes(p.id);
+                          return (
+                            <label key={p.id} style={{
+                              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, cursor: 'pointer',
+                              border: checked ? `2px solid ${p.color || '#3b82f6'}` : '1px solid var(--border)',
+                              background: checked ? `${p.color || '#3b82f6'}10` : 'transparent',
+                              fontSize: '0.8rem', fontWeight: checked ? 700 : 500,
+                              color: checked ? (p.color || '#3b82f6') : 'var(--text-dim)',
+                            }}>
+                              <input
+                                type="checkbox" checked={checked} style={{ accentColor: p.color || '#3b82f6' }}
+                                onChange={e => setForm(prev => ({
+                                  ...prev,
+                                  project_ids: e.target.checked
+                                    ? [...prev.project_ids, p.id]
+                                    : prev.project_ids.filter(id => Number(id) !== p.id),
+                                }))}
+                              />
+                              {p.name}{p.country ? ` — ${p.country}` : ''}
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                     <div className="form-group">
                       <label>Project Role</label>
@@ -207,18 +250,38 @@ export default function AdminPage() {
                       <td>
                         {u.role === 'super_admin' ? (
                           <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#8b5cf6' }}>All projects</span>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {allMemberships.filter(m => m.user_id === u.id).map(m => (
-                              <span key={m.id} style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: 12, fontWeight: 600, background: `${m.project_color || '#3b82f6'}15`, color: m.project_color || '#3b82f6' }}>
-                                {m.project_name} · {m.role}
-                              </span>
-                            ))}
-                            {allMemberships.filter(m => m.user_id === u.id).length === 0 && (
-                              <span style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 600 }}>No project</span>
-                            )}
-                          </div>
-                        )}
+                        ) : (() => {
+                          const userProjects = allMemberships.filter(m => m.user_id === u.id);
+                          const available = projects.filter(p => !userProjects.find(m => m.project_id === p.id));
+                          return (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                              {userProjects.map(m => (
+                                <span key={m.id} style={{ fontSize: '0.68rem', padding: '2px 4px 2px 8px', borderRadius: 12, fontWeight: 600, background: `${m.project_color || '#3b82f6'}15`, color: m.project_color || '#3b82f6', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                  {m.project_name} · {m.role}
+                                  <button
+                                    onClick={() => removeUserFromProject(u.id, m.project_id, m.project_name)}
+                                    title={`Remove from ${m.project_name}`}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '0 3px', fontSize: '0.75rem', lineHeight: 1, opacity: 0.7 }}
+                                  >✕</button>
+                                </span>
+                              ))}
+                              {userProjects.length === 0 && (
+                                <span style={{ fontSize: '0.68rem', color: '#f59e0b', fontWeight: 600 }}>No project</span>
+                              )}
+                              {available.length > 0 && (
+                                <select
+                                  value=""
+                                  onChange={e => addUserToProject(u.id, e.target.value)}
+                                  title="Assign to project"
+                                  style={{ fontSize: '0.68rem', padding: '2px 4px', borderRadius: 8, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-dim)', cursor: 'pointer', maxWidth: 70 }}
+                                >
+                                  <option value="">+ Add</option>
+                                  {available.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                </select>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td><span style={{ fontSize: '0.72rem', fontWeight: 600, color: u.is_active ? '#10b981' : '#ef4444' }}>{u.is_active ? '● Active' : '○ Disabled'}</span></td>
                       <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(u.created_at).toLocaleDateString()}</td>
