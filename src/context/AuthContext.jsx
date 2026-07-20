@@ -3,6 +3,15 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 const AuthContext = createContext(null);
 
+// Default side-nav feature visibility per role (mirrors the original hardcoded rules).
+// Super admins always see everything — they are not part of this map.
+export const DEFAULT_NAV_FEATURES = {
+  manager: ['dashboard', 'messages', 'tasks', 'leads', 'team', 'documents'],
+  staff: ['dashboard', 'messages', 'tasks', 'documents'],
+  marketing: ['dashboard', 'messages', 'tasks', 'auto_email', 'marketing', 'documents'],
+  viewer: ['dashboard', 'messages'],
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -40,6 +49,7 @@ export function AuthProvider({ children }) {
     super_admin: 'Super Admin', manager: 'Manager', staff: 'Staff',
     marketing: 'Marketing', viewer: 'Viewer',
   });
+  const [navFeatures, setNavFeatures] = useState(DEFAULT_NAV_FEATURES);
 
   useEffect(() => {
     fetch('/api/settings').then(r => r.json()).then(data => {
@@ -52,9 +62,19 @@ export function AuthProvider({ children }) {
           marketing: s.role_label_marketing || 'Marketing',
           viewer: s.role_label_viewer || 'Viewer',
         });
+        if (s.nav_features) {
+          try { setNavFeatures({ ...DEFAULT_NAV_FEATURES, ...JSON.parse(s.nav_features) }); } catch {}
+        }
       }
     }).catch(() => {});
   }, []);
+
+  // Can the current user see this side-nav feature? Super admins see everything.
+  const canSee = useCallback((featureKey) => {
+    if (!user) return false;
+    if (user.role === 'super_admin') return true;
+    return (navFeatures[user.role] || []).includes(featureKey);
+  }, [user, navFeatures]);
 
   const roleColors = {
     super_admin: '#dc2626', manager: '#8A0029', staff: '#2563eb',
@@ -68,6 +88,7 @@ export function AuthProvider({ children }) {
       user, loading, login, logout,
       isAdmin, isManager, isStaff, isMarketing,
       roleLabel, roleColor, roleLabels, roleColors,
+      navFeatures, canSee,
     }}>
       {children}
     </AuthContext.Provider>

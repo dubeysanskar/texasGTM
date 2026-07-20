@@ -8,7 +8,7 @@ import { useState } from 'react';
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, isAdmin, isManager, isStaff, logout, roleLabel, roleColor } = useAuth();
+  const { user, isAdmin, logout, roleLabel, roleColor, canSee } = useAuth();
   const { projects, activeProject, setActiveProject, createProject } = useProject();
   const [showProjectDropdown, setShowProjectDropdown] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -17,18 +17,20 @@ export default function Sidebar() {
 
   const PROJECT_COLORS = ['#DC2626','#EA580C','#D97706','#16A34A','#0D9488','#2563EB','#7C3AED','#DB2777','#4B5563'];
 
+  // Visibility is managed per-role in Admin → Features (super admins always see everything).
+  // Admin Panel and My Profile are not feature-gated.
   const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', show: true },
-    { href: '/messages', label: 'Messages', icon: 'chat', show: true },
-    { href: '/tasks', label: 'Tasks', icon: 'task_alt', show: isStaff },
-    { href: '/leads', label: 'Lead Management', icon: 'leaderboard', show: isManager },
-    { href: '/lead-scraper', label: 'Lead Scraper', icon: 'travel_explore', show: isAdmin },
-    { href: '/templates', label: 'Templates', icon: 'description', show: isAdmin },
-    { href: '/auto-email', label: 'Auto Email', icon: 'forward_to_inbox', show: isAdmin || user?.role === 'marketing' },
-    { href: '/team', label: 'Team', icon: 'group', show: isManager },
-    { href: '/marketing', label: 'Marketing', icon: 'campaign', show: isAdmin || user?.role === 'marketing' },
-    { href: '/shared-docs', label: 'Documents', icon: 'folder_shared', show: isStaff },
-    { href: '/logs', label: 'Activity Logs', icon: 'history', show: isAdmin },
+    { href: '/dashboard', label: 'Dashboard', icon: 'dashboard', show: canSee('dashboard') },
+    { href: '/messages', label: 'Messages', icon: 'chat', show: canSee('messages') },
+    { href: '/tasks', label: 'Tasks', icon: 'task_alt', show: canSee('tasks') },
+    { href: '/leads', label: 'Lead Management', icon: 'leaderboard', show: canSee('leads') },
+    { href: '/lead-scraper', label: 'Lead Scraper', icon: 'travel_explore', show: canSee('lead_scraper') },
+    { href: '/templates', label: 'Templates', icon: 'description', show: canSee('templates') },
+    { href: '/auto-email', label: 'Auto Email', icon: 'forward_to_inbox', show: canSee('auto_email') },
+    { href: '/team', label: 'Team', icon: 'group', show: canSee('team') },
+    { href: '/marketing', label: 'Marketing', icon: 'campaign', show: canSee('marketing') },
+    { href: '/shared-docs', label: 'Documents', icon: 'folder_shared', show: canSee('documents') },
+    { href: '/logs', label: 'Activity Logs', icon: 'history', show: canSee('logs') },
     { href: '/admin', label: 'Admin Panel', icon: 'settings', show: isAdmin },
     { href: '/profile', label: 'My Profile', icon: 'person', show: true },
   ];

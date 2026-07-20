@@ -1,16 +1,33 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, DEFAULT_NAV_FEATURES } from '@/context/AuthContext';
 
 const MI = ({ name, size = 18 }) => <span className="material-symbols-outlined" style={{ fontSize: size, verticalAlign: 'middle' }}>{name}</span>;
 
 const TABS = [
   { id: 'users', label: 'Users', icon: 'group' },
   { id: 'project_access', label: 'Project Access', icon: 'lock_person' },
+  { id: 'features', label: 'Features', icon: 'toggle_on' },
   { id: 'settings', label: 'Settings', icon: 'tune' },
 ];
 
 const ROLES = ['super_admin', 'manager', 'staff', 'marketing', 'viewer'];
+const FEATURE_ROLES = ['manager', 'staff', 'marketing', 'viewer'];
+
+// Side-nav features that can be toggled per role. Admin Panel and My Profile are not gated.
+const NAV_FEATURES = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { key: 'messages', label: 'Messages', icon: 'chat' },
+  { key: 'tasks', label: 'Tasks', icon: 'task_alt' },
+  { key: 'leads', label: 'Lead Management', icon: 'leaderboard' },
+  { key: 'lead_scraper', label: 'Lead Scraper', icon: 'travel_explore' },
+  { key: 'templates', label: 'Templates', icon: 'description' },
+  { key: 'auto_email', label: 'Auto Email', icon: 'forward_to_inbox' },
+  { key: 'team', label: 'Team', icon: 'group' },
+  { key: 'marketing', label: 'Marketing', icon: 'campaign' },
+  { key: 'documents', label: 'Documents', icon: 'folder_shared' },
+  { key: 'logs', label: 'Activity Logs', icon: 'history' },
+];
 
 export default function AdminPage() {
   const { user, isAdmin, roleLabels, roleColors } = useAuth();
@@ -27,6 +44,10 @@ export default function AdminPage() {
   const [roleLabelEdits, setRoleLabelEdits] = useState({});
   const [settingsSaved, setSettingsSaved] = useState(false);
 
+  // Features matrix: { role: [feature keys] }
+  const [featureMatrix, setFeatureMatrix] = useState(DEFAULT_NAV_FEATURES);
+  const [featuresSaved, setFeaturesSaved] = useState(false);
+
   // Project Access
   const [projects, setProjects] = useState([]);
   const [memberships, setMemberships] = useState([]);
@@ -39,7 +60,14 @@ export default function AdminPage() {
   const fetchUsers = () => { fetch('/api/users').then(r => r.json()).then(d => setUsers(d.users || [])).finally(() => setLoading(false)); };
   const fetchAllMemberships = () => { fetch('/api/projects/members').then(r => r.json()).then(d => setAllMemberships(d.memberships || [])).catch(() => {}); };
 
-  useEffect(() => { fetchUsers(); fetchProjects(); fetchAllMemberships(); }, []);
+  useEffect(() => {
+    fetchUsers(); fetchProjects(); fetchAllMemberships();
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      if (d.settings?.nav_features) {
+        try { setFeatureMatrix({ ...DEFAULT_NAV_FEATURES, ...JSON.parse(d.settings.nav_features) }); } catch {}
+      }
+    }).catch(() => {});
+  }, []);
   useEffect(() => { setRoleLabelEdits({ ...roleLabels }); }, [roleLabels]);
   useEffect(() => { if (selectedProject) fetchProjectMembers(selectedProject); }, [selectedProject]);
 
@@ -116,6 +144,25 @@ export default function AdminPage() {
   const updateUser = async (id, updates) => {
     await fetch('/api/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...updates }) });
     fetchUsers(); setEditUser(null); setSuccess('Updated!'); setTimeout(() => setSuccess(''), 3000);
+  };
+
+  const toggleFeature = (role, featureKey) => {
+    setFeatureMatrix(prev => {
+      const current = prev[role] || [];
+      return {
+        ...prev,
+        [role]: current.includes(featureKey) ? current.filter(k => k !== featureKey) : [...current, featureKey],
+      };
+    });
+  };
+
+  const saveFeatures = async () => {
+    const res = await fetch('/api/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { nav_features: JSON.stringify(featureMatrix) } }),
+    });
+    if (res.ok) { setFeaturesSaved(true); setTimeout(() => setFeaturesSaved(false), 3000); }
+    else { const d = await res.json(); setError(d.error); setTimeout(() => setError(''), 3000); }
   };
 
   const saveRoleLabels = async () => {
@@ -415,6 +462,67 @@ export default function AdminPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ════ FEATURES TAB ════ */}
+      {activeTab === 'features' && (
+        <div className="card">
+          <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><MI name="toggle_on" size={20} /> Feature Access by Role</h3>
+          <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: 6 }}>
+            Control which side-nav features each role can see. Changes apply to everyone with that role after their next page refresh.
+          </p>
+          <p style={{ fontSize: '0.74rem', color: '#8b5cf6', fontWeight: 600, marginBottom: 16 }}>
+            <MI name="shield_person" size={14} /> Super Admins always see all features — they are not listed here. Admin Panel and My Profile are never gated.
+          </p>
+          {featuresSaved && <div style={{ padding: '10px 16px', background: '#f0fdf4', color: '#10b981', borderRadius: 10, marginBottom: 16, fontSize: '0.82rem' }}>✅ Feature access saved!</div>}
+
+          <div className="table-container" style={{ marginBottom: 20 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ minWidth: 160 }}>Feature</th>
+                  {FEATURE_ROLES.map(role => (
+                    <th key={role} style={{ textAlign: 'center' }}>
+                      <span style={{ color: roleColors[role], fontWeight: 700 }}>{roleLabels[role] || role}</span>
+                      <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                        {(featureMatrix[role] || []).length}/{NAV_FEATURES.length} features
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {NAV_FEATURES.map(f => (
+                  <tr key={f.key}>
+                    <td style={{ fontWeight: 600, fontSize: '0.8rem' }}>
+                      <MI name={f.icon} size={16} /> {f.label}
+                    </td>
+                    {FEATURE_ROLES.map(role => {
+                      const checked = (featureMatrix[role] || []).includes(f.key);
+                      return (
+                        <td key={role} style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleFeature(role, f.key)}
+                            style={{ width: 16, height: 16, cursor: 'pointer', accentColor: roleColors[role] }}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-success" onClick={saveFeatures}><MI name="save" size={18} /> Save Feature Access</button>
+            <button className="btn btn-ghost" onClick={() => setFeatureMatrix(DEFAULT_NAV_FEATURES)} title="Restore the default visibility rules">
+              <MI name="restart_alt" size={18} /> Reset to Defaults
+            </button>
+          </div>
         </div>
       )}
 
