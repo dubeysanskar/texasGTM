@@ -281,10 +281,18 @@ async function sendCampaignEmail(sendId) {
   try {
     await query('UPDATE gtm_email_sends SET status = $1 WHERE id = $2', ['sending', sendId]);
 
+    // Resolve which project's SMTP accounts to send through
+    let projectId = send.project_id || null;
+    if (!projectId && send.campaign_id) {
+      const camp = await queryOne('SELECT project_id FROM gtm_email_campaigns WHERE id = $1', [send.campaign_id]);
+      projectId = camp?.project_id || null;
+    }
+
     const result = await sendMail({
       to: send.to_email,
       subject: send.subject,
       html: send.body_html,
+      projectId,
     });
 
     const messageId = result?.messageId || '';

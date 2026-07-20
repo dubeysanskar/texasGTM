@@ -7,13 +7,14 @@ const nodemailer = require('nodemailer');
 
 // ─── SMTP Account Pool ─────────────────────────────────────────────────────
 
-function getSMTPAccounts() {
+// ─── Env-based accounts (fallback when no DB accounts configured) ──────────
+function getEnvAccounts() {
   const accounts = [];
 
   // Primary account (from .env)
   if (process.env.SMTP_USER) {
     accounts.push({
-      id: 'primary',
+      id: 'env-primary',
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
       port: parseInt(process.env.SMTP_PORT || '465'),
       secure: process.env.SMTP_SECURE === 'true',
@@ -24,11 +25,9 @@ function getSMTPAccounts() {
       dailyLimit: parseInt(process.env.SMTP_DAILY_LIMIT || '30'),
     });
   }
-
-  // Secondary account (SMTP2_*)
   if (process.env.SMTP2_USER) {
     accounts.push({
-      id: 'secondary',
+      id: 'env-secondary',
       host: process.env.SMTP2_HOST || process.env.SMTP_HOST || 'smtp.gmail.com',
       port: parseInt(process.env.SMTP2_PORT || process.env.SMTP_PORT || '465'),
       secure: (process.env.SMTP2_SECURE || process.env.SMTP_SECURE || 'true') === 'true',
@@ -39,11 +38,9 @@ function getSMTPAccounts() {
       dailyLimit: parseInt(process.env.SMTP2_DAILY_LIMIT || '30'),
     });
   }
-
-  // Tertiary account (SMTP3_*)
   if (process.env.SMTP3_USER) {
     accounts.push({
-      id: 'tertiary',
+      id: 'env-tertiary',
       host: process.env.SMTP3_HOST || process.env.SMTP_HOST || 'smtp.gmail.com',
       port: parseInt(process.env.SMTP3_PORT || process.env.SMTP_PORT || '465'),
       secure: (process.env.SMTP3_SECURE || process.env.SMTP_SECURE || 'true') === 'true',
@@ -58,13 +55,63 @@ function getSMTPAccounts() {
   return accounts;
 }
 
+/**
+ * Load SMTP accounts for a given project from the database.
+ * Priority: project-specific active accounts + global (project_id NULL) active accounts.
+ * Falls back to env-configured accounts if the DB has none that apply.
+ * @param {number|null} projectId
+ * @returns {Promise<Array>}
+ */
+async function getSMTPAccounts(projectId = null) {
+  try {
+    const { queryAll } = require('@/lib/db');
+    let rows;
+    if (projectId) {
+      rows = await queryAll(
+        `SELECT * FROM gtm_smtp_accounts
+         WHERE is_active = true AND (project_id = $1 OR project_id IS NULL)
+         ORDER BY (project_id IS NULL) ASC, id ASC`,
+        [projectId]
+      );
+    } else {
+      rows = await queryAll(
+        `SELECT * FROM gtm_smtp_accounts WHERE is_active = true ORDER BY id ASC`
+      );
+    }
+
+    const dbAccounts = (rows || []).map(r => ({
+      id: `db-${r.id}`,
+      host: r.host,
+      port: r.port,
+      secure: r.secure,
+      user: r.username,
+      pass: r.password,
+      from: r.from_email || r.username,
+      fromName: r.from_name || 'TexasGTM',
+      dailyLimit: r.daily_limit || 30,
+    }));
+
+    if (dbAccounts.length > 0) return dbAccounts;
+  } catch (e) {
+    console.error('[mailer] DB account load failed, using env fallback:', e.message);
+  }
+
+  return getEnvAccounts();
+}
+
 // ─── Transporter Pool ───────────────────────────────────────────────────────
 
 const transporterPool = {};
 
+// Key by credentials so an edited DB account (new password/host) rebuilds its transporter.
+function transporterKey(account) {
+  return `${account.host}:${account.port}:${account.secure}:${account.user}:${account.pass}`;
+}
+
 function getTransporter(account) {
-  if (!transporterPool[account.id]) {
-    transporterPool[account.id] = nodemailer.createTransport({
+  const key = transporterKey(account);
+  if (!transporterPool[key]) {
+    transporterPool[key] = nodemailer.createTransport({
       host: account.host,
       port: account.port,
       secure: account.secure,
@@ -79,7 +126,7 @@ function getTransporter(account) {
       rateLimit: 1,     // 1 message per rateDelta
     });
   }
-  return transporterPool[account.id];
+  return transporterPool[key];
 }
 
 // ─── Daily Send Counter (in-memory, resets on restart) ──────────────────────
@@ -110,10 +157,9 @@ function incrementDailySendCount(accountId) {
  */
 let rotationIndex = 0;
 
-function selectAccount() {
-  const accounts = getSMTPAccounts();
-  if (accounts.length === 0) {
-    throw new Error('No SMTP accounts configured. Set SMTP_USER in .env');
+function selectAccount(accounts) {
+  if (!accounts || accounts.length === 0) {
+    throw new Error('No SMTP accounts configured for this project. Add one in Admin → Email / SMTP.');
   }
 
   // Filter to accounts under their daily limit
@@ -132,10 +178,10 @@ function selectAccount() {
 }
 
 /**
- * Get rotation status for all SMTP accounts
+ * Get rotation status for all SMTP accounts (optionally scoped to a project)
  */
-function getRotationStatus() {
-  const accounts = getSMTPAccounts();
+async function getRotationStatus(projectId = null) {
+  const accounts = await getSMTPAccounts(projectId);
   return accounts.map(a => ({
     id: a.id,
     from: a.from,
@@ -147,21 +193,24 @@ function getRotationStatus() {
 }
 
 /**
- * Get total remaining sends across all accounts
+ * Get total remaining sends across all accounts (optionally scoped to a project)
  */
-function getTotalRemainingToday() {
-  const accounts = getSMTPAccounts();
+async function getTotalRemainingToday(projectId = null) {
+  const accounts = await getSMTPAccounts(projectId);
   return accounts.reduce((sum, a) => sum + Math.max(0, a.dailyLimit - getDailySendCount(a.id)), 0);
 }
 
 // ─── Core Send Functions ────────────────────────────────────────────────────
 
 /**
- * Send an email using SMTP rotation
- * Automatically selects the best SMTP account
+ * Send an email using SMTP rotation.
+ * Automatically selects the best SMTP account for the given project.
+ * @param {object} opts
+ * @param {number|null} [opts.projectId] scope sending to this project's SMTP accounts
  */
-async function sendMail({ to, subject, html, replyTo }) {
-  const account = selectAccount();
+async function sendMail({ to, subject, html, replyTo, projectId = null }) {
+  const accounts = await getSMTPAccounts(projectId);
+  const account = selectAccount(accounts);
   const transporter = getTransporter(account);
 
   const mailOptions = {
@@ -183,14 +232,41 @@ async function sendMail({ to, subject, html, replyTo }) {
     const result = await transporter.sendMail(mailOptions);
     incrementDailySendCount(account.id);
 
-    const status = getRotationStatus();
-    console.log(`[mailer] ✓ Sent via ${account.id} (${account.from}) | Today: ${getDailySendCount(account.id)}/${account.dailyLimit} | Total remaining: ${getTotalRemainingToday()}`);
+    console.log(`[mailer] ✓ Sent via ${account.id} (${account.from}) | Today: ${getDailySendCount(account.id)}/${account.dailyLimit}`);
 
     return { ...result, smtpAccount: account.id, smtpFrom: account.from };
   } catch (err) {
     console.error(`[mailer] ✗ Failed via ${account.id} (${account.from}):`, err.message);
     throw err;
   }
+}
+
+/**
+ * Send a one-off test email using an explicit account config (bypasses rotation/limits).
+ * Used by the Admin "Test" button to verify SMTP credentials.
+ */
+async function sendTestMail(accountConfig, toEmail) {
+  const account = {
+    id: 'test',
+    host: accountConfig.host,
+    port: parseInt(accountConfig.port) || 465,
+    secure: accountConfig.secure !== false && String(accountConfig.secure) !== 'false',
+    user: accountConfig.username,
+    pass: accountConfig.password,
+    from: accountConfig.from_email || accountConfig.username,
+    fromName: accountConfig.from_name || 'TexasGTM',
+  };
+  const transporter = getTransporter(account);
+  const result = await transporter.sendMail({
+    from: `"${account.fromName}" <${account.from}>`,
+    to: toEmail,
+    subject: 'TexasGTM — SMTP Test ✓',
+    html: `<div style="font-family:Inter,sans-serif;padding:24px;">
+      <h2 style="color:#6366f1;">SMTP test successful ✅</h2>
+      <p>This confirms <strong>${account.from}</strong> (${account.host}:${account.port}) can send email from TexasGTM.</p>
+    </div>`,
+  });
+  return { messageId: result.messageId, from: account.from };
 }
 
 /**
@@ -278,4 +354,4 @@ async function sendInvite({ email, name, roleName, projectNames = [], isWelcome 
   });
 }
 
-module.exports = { sendMail, sendOTP, sendPasswordReset, sendInvite, getRotationStatus, getTotalRemainingToday };
+module.exports = { sendMail, sendTestMail, sendOTP, sendPasswordReset, sendInvite, getSMTPAccounts, getRotationStatus, getTotalRemainingToday };

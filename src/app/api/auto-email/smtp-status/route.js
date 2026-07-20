@@ -8,8 +8,10 @@ export async function GET(request) {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 });
 
   try {
-    const accounts = getRotationStatus();
-    const totalRemaining = getTotalRemainingToday();
+    const { searchParams } = new URL(request.url);
+    const projectId = searchParams.get('project_id') || null;
+    const accounts = await getRotationStatus(projectId);
+    const totalRemaining = await getTotalRemainingToday(projectId);
 
     return NextResponse.json({
       accounts,

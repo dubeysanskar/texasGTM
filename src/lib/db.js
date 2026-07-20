@@ -310,6 +310,26 @@ async function initSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_gtm_pm_user ON gtm_project_members(user_id);
     CREATE INDEX IF NOT EXISTS idx_gtm_pm_project ON gtm_project_members(project_id);
+
+    CREATE TABLE IF NOT EXISTS gtm_smtp_accounts (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER,
+      label TEXT NOT NULL DEFAULT '',
+      host TEXT NOT NULL,
+      port INTEGER NOT NULL DEFAULT 465,
+      secure BOOLEAN DEFAULT true,
+      username TEXT NOT NULL,
+      password TEXT NOT NULL DEFAULT '',
+      from_email TEXT NOT NULL DEFAULT '',
+      from_name TEXT DEFAULT '',
+      daily_limit INTEGER DEFAULT 30,
+      is_active BOOLEAN DEFAULT true,
+      created_by INTEGER,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_gtm_smtp_project ON gtm_smtp_accounts(project_id);
   `);
 
   // Seed default settings

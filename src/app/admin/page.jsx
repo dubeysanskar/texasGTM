@@ -8,8 +8,11 @@ const TABS = [
   { id: 'users', label: 'Users', icon: 'group' },
   { id: 'project_access', label: 'Project Access', icon: 'lock_person' },
   { id: 'features', label: 'Features', icon: 'toggle_on' },
+  { id: 'smtp', label: 'Email / SMTP', icon: 'mail' },
   { id: 'settings', label: 'Settings', icon: 'tune' },
 ];
+
+const EMPTY_SMTP = { label: '', host: 'smtp.gmail.com', port: 465, secure: true, username: '', password: '', from_email: '', from_name: '', daily_limit: 30, project_id: '' };
 
 const ROLES = ['super_admin', 'manager', 'staff', 'marketing', 'viewer'];
 const FEATURE_ROLES = ['manager', 'staff', 'marketing', 'viewer'];
@@ -47,6 +50,14 @@ export default function AdminPage() {
   // Features matrix: { role: [feature keys] }
   const [featureMatrix, setFeatureMatrix] = useState(DEFAULT_NAV_FEATURES);
   const [featuresSaved, setFeaturesSaved] = useState(false);
+
+  // SMTP accounts
+  const [smtpAccounts, setSmtpAccounts] = useState([]);
+  const [smtpForm, setSmtpForm] = useState(EMPTY_SMTP);
+  const [smtpEditId, setSmtpEditId] = useState(null);
+  const [showSmtpForm, setShowSmtpForm] = useState(false);
+  const [smtpTestTo, setSmtpTestTo] = useState('');
+  const [smtpBusy, setSmtpBusy] = useState(false);
 
   // Project Access
   const [projects, setProjects] = useState([]);
@@ -144,6 +155,49 @@ export default function AdminPage() {
   const updateUser = async (id, updates) => {
     await fetch('/api/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...updates }) });
     fetchUsers(); setEditUser(null); setSuccess('Updated!'); setTimeout(() => setSuccess(''), 3000);
+  };
+
+  // ─── SMTP handlers ───
+  const fetchSmtp = () => { fetch('/api/smtp').then(r => r.json()).then(d => setSmtpAccounts(d.accounts || [])).catch(() => {}); };
+  useEffect(() => { if (activeTab === 'smtp') fetchSmtp(); }, [activeTab]);
+
+  const saveSmtp = async (e) => {
+    e.preventDefault(); setError(''); setSmtpBusy(true);
+    const method = smtpEditId ? 'PUT' : 'POST';
+    const body = smtpEditId ? { ...smtpForm, id: smtpEditId } : smtpForm;
+    if (body.project_id === '') body.project_id = null;
+    const res = await fetch('/api/smtp', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    setSmtpBusy(false);
+    if (res.ok) { setSuccess(smtpEditId ? 'SMTP account updated!' : 'SMTP account added!'); setTimeout(() => setSuccess(''), 3000); setSmtpForm(EMPTY_SMTP); setSmtpEditId(null); setShowSmtpForm(false); fetchSmtp(); }
+    else { const d = await res.json(); setError(d.error); setTimeout(() => setError(''), 4000); }
+  };
+
+  const editSmtp = (a) => {
+    setSmtpEditId(a.id);
+    setSmtpForm({ label: a.label || '', host: a.host, port: a.port, secure: a.secure, username: a.username, password: '', from_email: a.from_email || '', from_name: a.from_name || '', daily_limit: a.daily_limit, project_id: a.project_id || '' });
+    setShowSmtpForm(true);
+  };
+
+  const deleteSmtp = async (id) => {
+    if (!confirm('Delete this SMTP account?')) return;
+    await fetch('/api/smtp', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    setSuccess('SMTP account deleted'); setTimeout(() => setSuccess(''), 3000); fetchSmtp();
+  };
+
+  const toggleSmtpActive = async (a) => {
+    await fetch('/api/smtp', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: a.id, is_active: !a.is_active }) });
+    fetchSmtp();
+  };
+
+  const testSmtp = async (a) => {
+    const to = prompt('Send a test email to:', smtpTestTo || user.email);
+    if (!to) return;
+    setSmtpTestTo(to);
+    setSuccess('Sending test email…');
+    const res = await fetch('/api/smtp/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: a.id, to }) });
+    const d = await res.json();
+    if (res.ok) { setSuccess(`✅ Test email sent from ${d.from} to ${d.to}`); setTimeout(() => setSuccess(''), 5000); }
+    else { setError(`Test failed: ${d.error}`); setTimeout(() => setError(''), 6000); setSuccess(''); }
   };
 
   const toggleFeature = (role, featureKey) => {
@@ -522,6 +576,101 @@ export default function AdminPage() {
             <button className="btn btn-ghost" onClick={() => setFeatureMatrix(DEFAULT_NAV_FEATURES)} title="Restore the default visibility rules">
               <MI name="restart_alt" size={18} /> Reset to Defaults
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ════ EMAIL / SMTP TAB ════ */}
+      {activeTab === 'smtp' && (
+        <div>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}><MI name="mail" size={20} /> SMTP Accounts</h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-dim)', margin: 0 }}>
+                  Add as many sending accounts as you want. Assign each to a project (or leave global) — Auto Email rotates through that project's accounts and respects each daily limit.
+                </p>
+              </div>
+              <button className="btn btn-primary" onClick={() => { setShowSmtpForm(!showSmtpForm); setSmtpEditId(null); setSmtpForm(EMPTY_SMTP); }}>
+                <MI name={showSmtpForm ? 'close' : 'add'} size={16} /> {showSmtpForm ? 'Cancel' : 'Add SMTP'}
+              </button>
+            </div>
+
+            {showSmtpForm && (
+              <form onSubmit={saveSmtp} style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                <div className="form-row">
+                  <div className="form-group"><label>Label</label><input className="form-input" placeholder="e.g. Arabic outreach — Gmail 1" value={smtpForm.label} onChange={e => setSmtpForm(p => ({ ...p, label: e.target.value }))} /></div>
+                  <div className="form-group">
+                    <label>Project</label>
+                    <select className="form-input" value={smtpForm.project_id} onChange={e => setSmtpForm(p => ({ ...p, project_id: e.target.value }))}>
+                      <option value="">🌐 Global (all projects)</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}{p.country ? ` — ${p.country}` : ''}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>SMTP Host *</label><input className="form-input" placeholder="smtp.gmail.com" value={smtpForm.host} onChange={e => setSmtpForm(p => ({ ...p, host: e.target.value }))} required /></div>
+                  <div className="form-group"><label>Port *</label><input type="number" className="form-input" value={smtpForm.port} onChange={e => setSmtpForm(p => ({ ...p, port: e.target.value }))} required /></div>
+                  <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', paddingBottom: 10 }}>
+                      <input type="checkbox" checked={smtpForm.secure} onChange={e => setSmtpForm(p => ({ ...p, secure: e.target.checked }))} /> SSL/TLS (secure)
+                    </label>
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>Username *</label><input className="form-input" placeholder="you@gmail.com" value={smtpForm.username} onChange={e => setSmtpForm(p => ({ ...p, username: e.target.value }))} required /></div>
+                  <div className="form-group"><label>Password / App Password {smtpEditId ? '(leave blank to keep)' : '*'}</label><input type="password" className="form-input" placeholder={smtpEditId ? '••••••••' : 'app password'} value={smtpForm.password} onChange={e => setSmtpForm(p => ({ ...p, password: e.target.value }))} required={!smtpEditId} /></div>
+                </div>
+                <div className="form-row">
+                  <div className="form-group"><label>From Email</label><input className="form-input" placeholder="defaults to username" value={smtpForm.from_email} onChange={e => setSmtpForm(p => ({ ...p, from_email: e.target.value }))} /></div>
+                  <div className="form-group"><label>From Name</label><input className="form-input" placeholder="Taha Airwaves" value={smtpForm.from_name} onChange={e => setSmtpForm(p => ({ ...p, from_name: e.target.value }))} /></div>
+                  <div className="form-group"><label>Daily Limit</label><input type="number" className="form-input" value={smtpForm.daily_limit} onChange={e => setSmtpForm(p => ({ ...p, daily_limit: e.target.value }))} /></div>
+                </div>
+                <button type="submit" className="btn btn-success" disabled={smtpBusy}><MI name="check" size={16} /> {smtpBusy ? 'Saving…' : smtpEditId ? 'Update Account' : 'Add Account'}</button>
+              </form>
+            )}
+          </div>
+
+          <div className="card" style={{ padding: 0 }}>
+            {smtpAccounts.length === 0 ? (
+              <div style={{ padding: 30, textAlign: 'center', color: '#9ca3af', fontSize: '0.82rem' }}>
+                <MI name="mail_off" size={32} />
+                <div style={{ marginTop: 8 }}>No SMTP accounts yet. Add one to start sending Auto Email.</div>
+                <div style={{ marginTop: 4, fontSize: '0.72rem' }}>Until then, the system falls back to the SMTP settings in the server .env file.</div>
+              </div>
+            ) : (
+              <div className="table-container" style={{ border: 'none' }}>
+                <table>
+                  <thead><tr><th>Account</th><th>Project</th><th>Host</th><th>From</th><th>Daily Limit</th><th>Status</th><th>Actions</th></tr></thead>
+                  <tbody>
+                    {smtpAccounts.map(a => (
+                      <tr key={a.id}>
+                        <td><strong>{a.label || a.username}</strong><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{a.username}</div></td>
+                        <td>
+                          {a.project_id ? (
+                            <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, fontWeight: 600, background: `${a.project_color || '#3b82f6'}15`, color: a.project_color || '#3b82f6' }}>{a.project_name}</span>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#8b5cf6' }}>🌐 Global</span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: '0.75rem' }}>{a.host}:{a.port}{a.secure ? ' 🔒' : ''}</td>
+                        <td style={{ fontSize: '0.75rem' }}>{a.from_name ? `${a.from_name} · ` : ''}{a.from_email || a.username}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 600 }}>{a.daily_limit}/day</td>
+                        <td><span style={{ fontSize: '0.72rem', fontWeight: 600, color: a.is_active ? '#10b981' : '#ef4444' }}>{a.is_active ? '● Active' : '○ Off'}</span></td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn btn-sm btn-ghost" onClick={() => testSmtp(a)} title="Send test email"><MI name="send" size={14} /></button>
+                            <button className="btn btn-sm btn-ghost" onClick={() => editSmtp(a)} title="Edit"><MI name="edit" size={14} /></button>
+                            <button className="btn btn-sm btn-ghost" style={{ color: a.is_active ? '#ef4444' : '#10b981' }} onClick={() => toggleSmtpActive(a)} title={a.is_active ? 'Disable' : 'Enable'}><MI name={a.is_active ? 'block' : 'check_circle'} size={14} /></button>
+                            <button className="btn btn-sm btn-ghost" style={{ color: '#ef4444' }} onClick={() => deleteSmtp(a.id)} title="Delete"><MI name="delete" size={14} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
