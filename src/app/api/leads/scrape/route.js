@@ -161,15 +161,35 @@ async function scrape2GIS(industry, selectedCities, apiKey, maxLeads = 100) {
   const seenCompanies = new Set();
   const leads = [];
   let apiCalls = 0;
+  let firstError = null;
+  const PAGE_SIZE = 10;          // 2GIS hard cap
+  const MAX_PAGES = 5;           // up to 50 results per keyword+city
+  const MAX_API_CALLS = 300;
 
   for (const city of citiesToSearch) {
-    for (const keyword of keywords) {
-      if (leads.length >= maxLeads || apiCalls >= 200) break;
+    if (leads.length >= maxLeads || apiCalls >= MAX_API_CALLS) break;
 
-      try {
-        const queryStr = `${keyword} ${city.name}`;
-        const { items } = await search2GIS(queryStr, apiKey);
-        apiCalls++;
+    for (const keyword of keywords) {
+      if (leads.length >= maxLeads || apiCalls >= MAX_API_CALLS) break;
+
+      const queryStr = `${keyword} ${city.name}`;
+
+      // Paginate: 2GIS returns max 10 per page, so loop pages to gather more.
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        if (leads.length >= maxLeads || apiCalls >= MAX_API_CALLS) break;
+
+        let items = [];
+        try {
+          const result = await search2GIS(queryStr, apiKey, page);
+          items = result.items;
+          apiCalls++;
+        } catch (e) {
+          if (!firstError) firstError = e.message;
+          console.error(`[2gis] "${keyword}" in ${city.name} p${page} error:`, e.message);
+          break; // stop paginating this query on error
+        }
+
+        if (!items.length) break; // no more results for this query
 
         for (const item of items) {
           if (leads.length >= maxLeads) break;
@@ -181,15 +201,15 @@ async function scrape2GIS(industry, selectedCities, apiKey, maxLeads = 100) {
           if (lead.company_name) leads.push(lead);
         }
 
+        if (items.length < PAGE_SIZE) break; // last page reached
         await new Promise(r => setTimeout(r, 200));
-      } catch (e) {
-        console.error(`[2gis] "${keyword}" in ${city.name} error:`, e.message);
       }
     }
-    if (leads.length >= maxLeads || apiCalls >= 200) break;
   }
 
   console.log(`[2gis] Used ${apiCalls} API calls, found ${leads.length} unique companies`);
+  // If we got nothing and hit an API error, bubble it up so the job shows why.
+  if (leads.length === 0 && firstError) throw new Error(firstError);
   return leads;
 }
 

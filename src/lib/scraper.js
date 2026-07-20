@@ -379,14 +379,17 @@ function inferSectorFromText(text = '') {
 }
 
 // ─── 1. 2GIS CATALOG API ─────────────────────────────────────
+// NOTE: 2GIS caps page_size at 10. Requesting more returns HTTP 200 with an
+// empty result and a meta.error ("paramIsOutsideSet") — which is why the old
+// page_size:50 silently produced zero leads on every call.
 async function search2GIS(query, apiKey, page = 1) {
   const params = new URLSearchParams({
     q: query,
     key: apiKey,
     type: 'branch',
-    page_size: '50',
+    page_size: '10',
     page: String(page),
-    fields: 'items.contact_groups,items.org,items.rubrics,items.schedule,items.address',
+    fields: 'items.contact_groups,items.org,items.rubrics,items.address,items.full_name',
   });
 
   const res = await fetch(`https://catalog.api.2gis.com/3.0/items?${params}`, {
@@ -400,6 +403,14 @@ async function search2GIS(query, apiKey, page = 1) {
   }
 
   const data = await res.json();
+
+  // 2GIS returns 200 even for errors — the real status is in meta.error.
+  // Surface config/param/auth errors; treat "nothing found" as an empty result.
+  const err = data.meta?.error;
+  if (err && /param|key|auth|access|forbidden|quota|limit/i.test(`${err.type} ${err.message}`)) {
+    throw new Error(`2GIS API error: ${err.message} (${err.type})`);
+  }
+
   return {
     items: data.result?.items || [],
     total: data.result?.total || 0,
