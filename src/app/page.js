@@ -125,11 +125,31 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
+      {/* ═══ Branded panel ═══ */}
+      <div className="login-brand">
+        <div className="login-brand-top">
+          <img src="/logo.png" alt="TexasGTM" />
+          <span>TexasGTM</span>
+        </div>
+        <div className="login-brand-hero">
+          <h2>Go-to-market intelligence,<br />built for every region.</h2>
+          <p>Manage leads, campaigns, and your team across Arabic, Russian, and global markets — all in one workspace.</p>
+          <div className="login-brand-features">
+            <div className="login-brand-feature"><span className="material-symbols-outlined">leaderboard</span> Track and score leads by region</div>
+            <div className="login-brand-feature"><span className="material-symbols-outlined">forward_to_inbox</span> Automate multilingual outreach</div>
+            <div className="login-brand-feature"><span className="material-symbols-outlined">groups</span> Role-based access for your whole team</div>
+          </div>
+        </div>
+        <div className="login-brand-footer">© {new Date().getFullYear()} Taha Airwaves · TexasGTM CRM</div>
+      </div>
+
+      {/* ═══ Form panel ═══ */}
+      <div className="login-form-panel">
       <div className="login-card">
         <div className="login-logo">
-          <img src="/logo.png" alt="TexasGTM" style={{ width: 48, height: 48, borderRadius: 10, marginBottom: 8 }} />
-          <h1>TexasGTM</h1>
-          <p>{mode === 'login' ? 'Enter your email to continue' : mode === 'password' ? 'Enter your password' : mode === 'register' ? 'Create your account' : mode === 'forgot' ? 'Reset your password' : isAdminOtp ? 'Admin verification' : 'Enter verification code'}</p>
+          <img src="/logo.png" alt="TexasGTM" />
+          <h1>{mode === 'register' ? 'Create your account' : 'Welcome back'}</h1>
+          <p>{mode === 'login' ? 'Enter your email to continue' : mode === 'password' ? 'Enter your password' : mode === 'register' ? 'Join your team workspace' : mode === 'forgot' ? 'Reset your password' : isAdminOtp ? 'Admin verification' : 'Enter verification code'}</p>
         </div>
 
         {error && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '10px 14px', borderRadius: 10, fontSize: '0.82rem', marginBottom: 16, textAlign: 'center' }}>{error}</div>}
@@ -220,6 +240,7 @@ export default function LoginPage() {
           {mode === 'register' && <>Already have an account? <button onClick={() => { setMode('login'); setError(''); setSuccess(''); }} style={{ color: '#6366f1', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}>Sign In</button></>}
           {mode === 'forgot' && <><button onClick={() => { setMode('login'); setError(''); setSuccess(''); }} style={{ color: '#6366f1', background: 'none', border: 'none', fontWeight: 600, cursor: 'pointer' }}>← Back to Sign In</button></>}
         </div>
+      </div>
       </div>
     </div>
   );

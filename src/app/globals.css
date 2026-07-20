@@ -207,16 +207,71 @@ tbody tr:hover { background: rgba(99,102,241,0.03); }
 
 /* ═══ Login Page ═══ */
 .login-page {
-  min-height: 100vh; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+  min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr;
+  background: var(--bg); overflow: hidden;
+}
+
+/* Left branded panel */
+.login-brand {
+  position: relative; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 56px 56px 48px;
+  background: linear-gradient(150deg, #1e1b4b 0%, #312e81 45%, #4338ca 100%);
+  color: #fff; overflow: hidden;
+}
+.login-brand::before {
+  content: ''; position: absolute; top: -120px; right: -120px; width: 380px; height: 380px;
+  background: radial-gradient(circle, rgba(129,140,248,0.35) 0%, transparent 70%); border-radius: 50%;
+}
+.login-brand::after {
+  content: ''; position: absolute; bottom: -140px; left: -80px; width: 340px; height: 340px;
+  background: radial-gradient(circle, rgba(99,102,241,0.28) 0%, transparent 70%); border-radius: 50%;
+}
+.login-brand-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
+.login-brand-top img { width: 42px; height: 42px; border-radius: 11px; }
+.login-brand-top span { font-size: 1.25rem; font-weight: 800; letter-spacing: 0.5px; }
+.login-brand-hero { position: relative; z-index: 1; }
+.login-brand-hero h2 { font-size: 2.1rem; font-weight: 800; line-height: 1.18; margin-bottom: 14px; letter-spacing: -0.5px; }
+.login-brand-hero p { font-size: 0.95rem; color: #c7d2fe; max-width: 420px; line-height: 1.6; }
+.login-brand-features { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 14px; margin-top: 28px; }
+.login-brand-feature { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; color: #e0e7ff; }
+.login-brand-feature .material-symbols-outlined {
+  font-size: 20px; padding: 8px; border-radius: 10px;
+  background: rgba(255,255,255,0.12); color: #a5b4fc;
+}
+.login-brand-footer { position: relative; z-index: 1; font-size: 0.75rem; color: #a5b4fc; }
+
+/* Right form panel */
+.login-form-panel {
+  display: flex; align-items: center; justify-content: center; padding: 40px 24px;
 }
 .login-card {
-  width: 400px; max-width: 90vw; background: #fff; border-radius: 20px;
-  padding: 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+  width: 400px; max-width: 100%; background: var(--bg-card); border-radius: 20px;
+  padding: 40px; box-shadow: 0 10px 40px rgba(30,27,75,0.08); border: 1px solid var(--border);
+  animation: loginCardIn 0.4s cubic-bezier(0.16,1,0.3,1);
 }
-.login-logo { text-align: center; margin-bottom: 24px; }
-.login-logo h1 { font-size: 1.5rem; font-weight: 800; color: var(--primary); display: flex; align-items: center; justify-content: center; gap: 8px; }
-.login-logo p { font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; }
+@keyframes loginCardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.login-logo { text-align: center; margin-bottom: 28px; }
+.login-logo img { width: 52px; height: 52px; border-radius: 13px; margin-bottom: 12px; box-shadow: 0 6px 18px rgba(99,102,241,0.25); }
+.login-logo h1 { font-size: 1.4rem; font-weight: 800; color: var(--text); }
+.login-logo p { font-size: 0.84rem; color: var(--text-muted); margin-top: 6px; }
+
+.login-card .form-input {
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.login-card .form-input:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); outline: none;
+}
+.login-card .btn-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  border: none; transition: transform 0.12s, box-shadow 0.15s;
+}
+.login-card .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(99,102,241,0.35); }
+.login-card .btn-primary:disabled { opacity: 0.6; }
+
+@media (max-width: 900px) {
+  .login-page { grid-template-columns: 1fr; }
+  .login-brand { display: none; }
+}
 
 /* ═══ Leads (ported) ═══ */
 .leads-stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
