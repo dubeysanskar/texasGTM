@@ -24,17 +24,28 @@ export async function POST(request) {
   if (existing) return NextResponse.json({ error: 'Email already exists' }, { status: 409 });
   const hash = await bcrypt.hash(password, 10);
   const result = await query('INSERT INTO gtm_users (name, email, password_hash, role) VALUES ($1,$2,$3,$4) RETURNING id', [name.trim(), email.toLowerCase().trim(), hash, finalRole]);
+  const projectNames = [];
   if (finalRole !== 'super_admin') {
     for (const pid of ids) {
-      const project = await queryOne('SELECT id FROM gtm_projects WHERE id = $1 AND is_active = true', [pid]);
+      const project = await queryOne('SELECT id, name FROM gtm_projects WHERE id = $1 AND is_active = true', [pid]);
       if (project) {
         await query(
           'INSERT INTO gtm_project_members (user_id, project_id, role, added_by) VALUES ($1,$2,$3,$4) ON CONFLICT (user_id, project_id) DO NOTHING',
           [result.rows[0].id, project.id, project_role || 'member', user.id]
         );
+        projectNames.push(project.name);
       }
     }
   }
+
+  // Notify the new user by email
+  try {
+    const { sendInvite } = require('@/lib/mailer');
+    await sendInvite({ email: email.toLowerCase().trim(), name: name.trim(), roleName: finalRole.replace('_', ' '), projectNames });
+  } catch (e) {
+    console.error('[invite] Email send failed:', e.message);
+  }
+
   return NextResponse.json({ success: true });
 }
 

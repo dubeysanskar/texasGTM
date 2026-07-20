@@ -34,25 +34,8 @@ export async function POST(request) {
 
   // Send invite email
   try {
-    const { sendMail } = require('@/lib/mailer');
-    const baseUrl = process.env.NEXT_PUBLIC_URL || 'https://gtm.tahaairwavescrm.cloud';
-    await sendMail({
-      to: email.toLowerCase().trim(),
-      subject: 'TexasGTM — You have been invited',
-      html: `
-        <div style="font-family:Inter,sans-serif;max-width:480px;margin:0 auto;padding:40px 24px;background:#f8f9fb;border-radius:16px;">
-          <div style="text-align:center;margin-bottom:24px;">
-            <h1 style="font-size:1.5rem;color:#6366f1;margin:0;">TexasGTM</h1>
-            <p style="color:#94a3b8;font-size:0.85rem;margin:4px 0 0;">Team Invitation</p>
-          </div>
-          <div style="background:#fff;border-radius:12px;padding:24px;text-align:center;border:1px solid #e2e8f0;">
-            <p style="margin:0 0 8px;color:#475569;font-size:0.92rem;">Hi <strong>${name}</strong>,</p>
-            <p style="margin:0 0 20px;color:#475569;font-size:0.88rem;">You've been invited to join <strong>TexasGTM CRM</strong> as <strong>${assignRole.replace('_', ' ')}</strong>.</p>
-            <a href="${baseUrl}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:0.92rem;">Go to TexasGTM</a>
-            <p style="margin:20px 0 0;font-size:0.78rem;color:#94a3b8;">Just enter your email on the login page — you'll receive an OTP to sign in.</p>
-          </div>
-        </div>`,
-    });
+    const { sendInvite } = require('@/lib/mailer');
+    await sendInvite({ email: email.toLowerCase().trim(), name, roleName: assignRole.replace('_', ' ') });
   } catch (e) {
     console.error('[invite] Email send failed:', e.message);
   }

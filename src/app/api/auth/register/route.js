@@ -31,6 +31,14 @@ export async function POST(request) {
     [userId, project.id, 'member']
   );
 
+  // Welcome email (non-blocking — registration succeeds even if mail fails)
+  try {
+    const { sendInvite } = require('@/lib/mailer');
+    await sendInvite({ email: email.toLowerCase().trim(), name: name.trim(), roleName: 'Staff', projectNames: [project.name], isWelcome: true });
+  } catch (e) {
+    console.error('[register] Welcome email failed:', e.message);
+  }
+
   const userData = { id: userId, name: name.trim(), email: email.toLowerCase().trim(), role };
   const token = signToken(userData);
 

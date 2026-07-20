@@ -239,4 +239,43 @@ async function sendPasswordReset(email, resetUrl) {
   });
 }
 
-module.exports = { sendMail, sendOTP, sendPasswordReset, getRotationStatus, getTotalRemainingToday };
+/**
+ * Send invite / welcome email for a new account.
+ * Used by all three user-creation paths: Team invite, Admin add-user, self signup.
+ * @param {object} opts
+ * @param {string} opts.email    recipient
+ * @param {string} opts.name     user's display name
+ * @param {string} opts.roleName human-readable role (e.g. "Staff")
+ * @param {string[]} [opts.projectNames] projects the user was assigned to
+ * @param {boolean} [opts.isWelcome]     true = self-signup welcome, false = invitation
+ */
+async function sendInvite({ email, name, roleName, projectNames = [], isWelcome = false }) {
+  const baseUrl = process.env.NEXT_PUBLIC_URL || process.env.APP_URL || 'https://gtm.tahaairwavescrm.cloud';
+  const projectLine = projectNames.length
+    ? `<p style="margin:0 0 20px;color:#475569;font-size:0.88rem;">Assigned project${projectNames.length > 1 ? 's' : ''}: <strong>${projectNames.join(', ')}</strong></p>`
+    : '';
+  return sendMail({
+    to: email,
+    subject: isWelcome ? 'TexasGTM — Welcome aboard!' : 'TexasGTM — You have been invited',
+    html: `
+      <div style="font-family:Inter,sans-serif;max-width:480px;margin:0 auto;padding:40px 24px;background:#f8f9fb;border-radius:16px;">
+        <div style="text-align:center;margin-bottom:24px;">
+          <h1 style="font-size:1.5rem;color:#6366f1;margin:0;">TexasGTM</h1>
+          <p style="color:#94a3b8;font-size:0.85rem;margin:4px 0 0;">${isWelcome ? 'Welcome' : 'Team Invitation'}</p>
+        </div>
+        <div style="background:#fff;border-radius:12px;padding:24px;text-align:center;border:1px solid #e2e8f0;">
+          <p style="margin:0 0 8px;color:#475569;font-size:0.92rem;">Hi <strong>${name}</strong>,</p>
+          <p style="margin:0 0 12px;color:#475569;font-size:0.88rem;">${isWelcome
+            ? `Your <strong>TexasGTM CRM</strong> account has been created. Your role: <strong>${roleName}</strong>.`
+            : `You've been invited to join <strong>TexasGTM CRM</strong> as <strong>${roleName}</strong>.`}</p>
+          ${projectLine}
+          <a href="${baseUrl}" style="display:inline-block;padding:12px 32px;background:#6366f1;color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:0.92rem;">Go to TexasGTM</a>
+          <p style="margin:20px 0 0;font-size:0.78rem;color:#94a3b8;">${isWelcome
+            ? 'Sign in with your email and password — you\'ll receive an OTP to verify each login.'
+            : 'Just enter your email on the login page — you\'ll receive an OTP to sign in. Use "Forgot password" to set your own password.'}</p>
+        </div>
+      </div>`,
+  });
+}
+
+module.exports = { sendMail, sendOTP, sendPasswordReset, sendInvite, getRotationStatus, getTotalRemainingToday };
